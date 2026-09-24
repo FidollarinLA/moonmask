@@ -45,7 +45,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 
 ## 支持的 JSON Schema 子集
 
-- `string`，可带 `minLength` / `maxLength`。内容是 ASCII 可见字符和常见转义 `\" \\ \/ \b \f \n \r \t`。
+- `string`，可带 `minLength` / `maxLength`。内容是 ASCII 可见字符和常见转义 `\" \\ \/ \b \f \n \r \t`。`pattern` 是不锚定的安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。`.`、锚点、`\s` 和「pattern 再加长度」会报错。
 - `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。可带 `minimum` / `maximum`。`exclusiveMinimum` / `exclusiveMaximum` 必须是数字，表示开区间；同时写时取更紧的一侧。
 - `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
 - `boolean`、`null`。
@@ -54,7 +54,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - `array`，必须有 `items`，可带 `minItems` / `maxItems`。
 - `anyOf`，以及 `type` 写成类型数组。
 - 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
-- 其余关键字，包括 `pattern`、`format`、`multipleOf`、`oneOf`、`$ref`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
+- 其余关键字，包括 `format`、`multipleOf`、`oneOf`、`$ref`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
 
 ## 适用范围与限制
 
