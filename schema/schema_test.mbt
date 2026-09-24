@@ -830,6 +830,76 @@ test "local $defs references expand and cycles are rejected" {
 }
 
 ///|
+test "siblings of $ref apply when they do not conflict" {
+  let colors : Json = {
+    "$ref": "#/$defs/name",
+    "enum": ["red", "blue"],
+    "$defs": { "name": { "type": "string", "minLength": 3, "maxLength": 4 } },
+  }
+  let dfa = @schema.compile(colors)
+  let validator = @moonschema.Schema::new(colors)
+  assert_true(dfa.accepts("\"red\""))
+  assert_true(dfa.accepts("\"blue\""))
+  assert_false(dfa.accepts("\"green\""))
+  assert_false(dfa.accepts("\"a\""))
+  assert_true(validator.valid(@json.parse("\"red\"")))
+  assert_false(validator.valid(@json.parse("\"green\"")))
+  let narrowed : Json = {
+    "$ref": "#/$defs/value",
+    "type": "string",
+    "$defs": { "value": { "type": ["string", "integer"] } },
+  }
+  let narrow = @schema.compile(narrowed)
+  assert_true(narrow.accepts("\"ab\""))
+  assert_false(narrow.accepts("1"))
+  let fixed : Json = {
+    "$ref": "#/$defs/n",
+    "const": 4,
+    "description": "four",
+    "$defs": { "n": { "type": "integer", "minimum": 0 } },
+  }
+  assert_true(@schema.compile(fixed).accepts("4"))
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/n",
+        "const": -1,
+        "$defs": { "n": { "type": "integer", "minimum": 0 } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "minLength": 1,
+        "$defs": { "s": { "type": "string" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "pattern": "a",
+        "$defs": { "s": { "type": "string" } },
+      })
+    }),
+  )
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-sibling-seed-000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
 test "hand-written invalid documents are rejected" {
   let dfa = @schema.compile(e2e_schemas()[0])
   assert_true(
