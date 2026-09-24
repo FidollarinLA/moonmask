@@ -582,6 +582,62 @@ test "sampled patterned strings pass the independent validator" {
 }
 
 ///|
+test "string content accepts well-formed utf-8 and rejects the rest" {
+  let one : Json = { "type": "string", "minLength": 1, "maxLength": 1 }
+  expect_json(one, "\"é\"", true)
+  expect_json(one, "\"中\"", true)
+  expect_json(one, "\"😀\"", true)
+  expect_json(one, "\"\\n\"", true)
+  expect_json(one, "\"a\"", true)
+  expect_json(one, "\"中文\"", false)
+  expect_json(one, "\"e\u{0301}\"", false)
+  expect_json(one, "\"\\n中\"", false)
+  let two : Json = { "type": "string", "minLength": 2, "maxLength": 2 }
+  expect_json(two, "\"\\n中\"", true)
+  expect_json(two, "\"中\\n\"", true)
+  expect_json(two, "\"e\u{0301}\"", true)
+  expect_json(two, "\"中\"", false)
+  let marked : Json = {
+    "type": "string",
+    "pattern": "a+",
+    "minLength": 1,
+    "maxLength": 3,
+  }
+  expect_json(marked, "\"中a\"", true)
+  expect_json(marked, "\"a中\"", true)
+  expect_json(marked, "\"中文a\"", true)
+  expect_json(marked, "\"中\"", false)
+  expect_json(marked, "\"😀\"", false)
+  expect_json(marked, "\"中文ab\"", false)
+  let text = @schema.compile(one)
+  assert_true(text.matches(Bytes::from_array([0x22, 0xC3, 0xA9, 0x22])))
+  let bad = [
+    [0x22, 0x80, 0x22],
+    [0x22, 0xC0, 0x80, 0x22],
+    [0x22, 0xED, 0xA0, 0x80, 0x22],
+    [0x22, 0xC2, 0x22],
+    [0x22, 0xE0, 0x80, 0x80, 0x22],
+    [0x22, 0xF5, 0x80, 0x80, 0x80, 0x22],
+  ]
+  for bytes in bad {
+    let raw : Array[Byte] = []
+    for b in bytes {
+      raw.push(b.to_byte())
+    }
+    assert_false(text.matches(Bytes::from_array(raw)))
+  }
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "中" })),
+  )
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "\\u4e2d" })),
+  )
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "\\xC2" })),
+  )
+}
+
+///|
 test "pattern length bound of 1000 still matches one decoded character" {
   let schema : Json = {
     "type": "string",

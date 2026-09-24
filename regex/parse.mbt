@@ -327,6 +327,22 @@ fn Parser::class_item(self : Parser) -> ClassItem raise ParseError {
 }
 
 ///|
+fn Parser::hex(self : Parser) -> Int raise ParseError {
+  guard self.peek() is Some(c) else { self.fail("expected a hex digit") }
+  self.pos += 1
+  let n = c.to_int()
+  if c >= '0' && c <= '9' {
+    n - '0'.to_int()
+  } else if c >= 'a' && c <= 'f' {
+    n - 'a'.to_int() + 10
+  } else if c >= 'A' && c <= 'F' {
+    n - 'A'.to_int() + 10
+  } else {
+    self.fail("expected a hex digit")
+  }
+}
+
+///|
 fn Parser::escape(self : Parser) -> ClassItem raise ParseError {
   let start = self.pos
   self.pos += 1
@@ -351,6 +367,11 @@ fn Parser::escape(self : Parser) -> ClassItem raise ParseError {
     'n' => One('\n'.to_int())
     't' => One('\t'.to_int())
     'r' => One('\r'.to_int())
+    'x' => {
+      let hi = self.hex()
+      let lo = self.hex()
+      One(hi * 16 + lo)
+    }
     '\\'
     | '.'
     | '*'
