@@ -638,6 +638,69 @@ test "string content accepts well-formed utf-8 and rejects the rest" {
 }
 
 ///|
+test "unicode escapes decode to one code point" {
+  let one : Json = { "type": "string", "minLength": 1, "maxLength": 1 }
+  expect_json(one, "\"\\u0061\"", true)
+  expect_json(one, "\"\\u4e2d\"", true)
+  expect_json(one, "\"\\u4E2D\"", true)
+  expect_json(one, "\"\\uD83D\\uDE00\"", true)
+  expect_json(one, "\"\\ud83d\\ude00\"", true)
+  expect_json(one, "\"\\u000a\"", true)
+  expect_json(one, "\"\\u00610\"", false)
+  expect_json(one, "\"\\uD83D\\uDE00a\"", false)
+  let text = @schema.compile(one)
+  assert_false(text.accepts("\"\\uD800\""))
+  assert_false(text.accepts("\"\\uDE00\""))
+  assert_false(text.accepts("\"\\uD800\\uD800\""))
+  assert_false(text.accepts("\"\\uD800\\u0061\""))
+  assert_false(text.accepts("\"\\u12\""))
+  assert_false(text.accepts("\"\\u006G\""))
+  assert_false(text.accepts("\"\\u{1F600}\""))
+  assert_false(text.accepts("\"\\u{0061}\""))
+  let marked : Json = {
+    "type": "string",
+    "pattern": "a+",
+    "minLength": 1,
+    "maxLength": 2,
+  }
+  expect_json(marked, "\"\\u0061\"", true)
+  expect_json(marked, "\"\\u0061b\"", true)
+  expect_json(marked, "\"\\u4e2da\"", true)
+  expect_json(marked, "\"a\\u4e2d\"", true)
+  expect_json(marked, "\"\\u0062\"", false)
+  expect_json(marked, "\"\\u4e2d\"", false)
+  expect_json(marked, "\"\\uD83D\\uDE00\"", false)
+  expect_json(marked, "\"\\u0061\\u0061\\u0061\"", false)
+  let digits : Json = { "type": "string", "pattern": "0" }
+  expect_json(digits, "\"\\u0061\"", false)
+  expect_json(digits, "\"0\"", true)
+  expect_json(digits, "\"x0\"", true)
+  let open : Json = { "type": "string", "pattern": "a" }
+  expect_json(open, "\"\\u0061\"", true)
+  expect_json(open, "\"\\n\\u0061\"", true)
+  expect_json(open, "\"中\\u0061\"", true)
+  let sampled : Json = {
+    "type": "string",
+    "pattern": "a+",
+    "minLength": 1,
+    "maxLength": 4,
+  }
+  let dfa = @schema.compile(sampled)
+  let validator = @moonschema.Schema::new(sampled)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-unicode-escape-seed-000")
+  let mut produced = 0
+  for _ in 0..<80 {
+    guard dfa.sample(rand, max_len=48) is Some(bytes) else { continue }
+    let got = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(got)) {
+      fail(got)
+    }
+    produced += 1
+  }
+  assert_true(produced > 20)
+}
+
+///|
 test "pattern length bound of 1000 still matches one decoded character" {
   let schema : Json = {
     "type": "string",

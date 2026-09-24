@@ -309,23 +309,20 @@ fn gen_string(fields : Map[String, Json]) -> String raise SchemaError {
     None => repeat_atom(string_char, min, max)
     Some(String("")) => repeat_atom(string_char, min, max)
     Some(String(pattern)) => {
-      let wrapped = try @regex.string_pattern(pattern) catch {
+      try @regex.string_pattern(pattern) catch {
         @regex.ParseError(_) => raise Unsupported("pattern")
       } noraise {
-        wrapped => wrapped
+        _ => ()
       }
-      if min == 0 && max is None {
-        "(?:" + string_char + ")*" + wrapped + "(?:" + string_char + ")*"
-      } else if max is Some(bound) && min > bound {
+      if max is Some(bound) && min > bound {
         raise Invalid("minLength > maxLength")
-      } else {
-        let max_n = match max {
-          None => -1
-          Some(bound) => bound
-        }
-        let plen = pattern.to_array().length()
-        "(?@\{min},\{max_n},\{plen}:\{pattern})"
       }
+      let max_n = match max {
+        None => -1
+        Some(bound) => bound
+      }
+      let plen = pattern.to_array().length()
+      "(?@\{min},\{max_n},\{plen}:\{pattern})"
     }
     Some(_) => raise Invalid("pattern")
   }

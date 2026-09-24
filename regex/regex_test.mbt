@@ -122,6 +122,20 @@ test "distance counts bytes to the nearest accepting state" {
 }
 
 ///|
+test "unicode escapes are four hex digits or a surrogate pair" {
+  let unit = @regex.compile(@regex.json_unit())
+  assert_true(unit.accepts("\\u0061"))
+  assert_true(unit.accepts("\\u4E2D"))
+  assert_true(unit.accepts("\\uD83D\\uDE00"))
+  assert_false(unit.accepts("\\uD800"))
+  assert_false(unit.accepts("\\uDE00"))
+  assert_false(unit.accepts("\\u12"))
+  assert_false(unit.accepts("\\u006G"))
+  assert_false(unit.accepts("\\u{0061}"))
+  assert_false(unit.accepts("\\uD800\\uD800"))
+}
+
+///|
 test "hex escapes are bytes and utf-8 sequences stay well formed" {
   let d = @regex.compile("\\x61\\x62")
   assert_true(d.accepts("ab"))
