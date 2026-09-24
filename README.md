@@ -54,7 +54,8 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - `array`，必须有 `items`，可带 `minItems` / `maxItems`。
 - `anyOf`，以及 `type` 写成类型数组。
 - 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
-- 其余关键字，包括 `format`、`multipleOf`、`oneOf`、`$ref`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
+- 根 schema 上的 `$defs`。`$ref` 只能是 `#/$defs/名字`（名字按 JSON Pointer 转义，`~1` 表示 `/`），并在编译时展开。允许一串没有环的引用。环、文档外的 URL、`#/definitions/`、指向 `$defs` 里面再往下的指针、`$ref` 旁边的其它约束，以及写在根以外的 `$defs`，都会报错。
+- 其余关键字，包括 `format`、`multipleOf`、`oneOf`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
 
 ## 适用范围与限制
 
@@ -64,7 +65,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - object 会输出每一个声明过的属性，不省略可选字段。
 - 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
 - 数值边界本身最多 15 位整数和 15 位小数；超出这个范围会报错，而不是截断。带范围的 `number` 不生成指数。
-- 不支持 `$ref` 和递归结构。
+- `$ref` 不能成环，也不能指向另一份文档。递归 schema 不支持。
 
 ## 设计
 

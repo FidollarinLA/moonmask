@@ -751,6 +751,85 @@ test "sampled strings with pattern and length pass the validator" {
 }
 
 ///|
+test "local $defs references expand and cycles are rejected" {
+  let schema : Json = {
+    "type": "object",
+    "properties": { "name": { "$ref": "#/$defs/name" } },
+    "$defs": { "name": { "type": "string", "minLength": 1, "maxLength": 4 } },
+  }
+  let dfa = @schema.compile(schema)
+  let validator = @moonschema.Schema::new(schema)
+  assert_true(dfa.accepts("{\"name\":\"a\"}"))
+  assert_true(validator.valid(@json.parse("{\"name\":\"a\"}")))
+  assert_false(dfa.accepts("{\"name\":\"\"}"))
+  assert_false(validator.valid(@json.parse("{\"name\":\"\"}")))
+  let chained : Json = {
+    "$ref": "#/$defs/a",
+    "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "type": "integer" } },
+  }
+  let chain = @schema.compile(chained)
+  assert_true(chain.accepts("7"))
+  assert_false(chain.accepts("\"7\""))
+  let named : Json = {
+    "$ref": "#/$defs/a~1b",
+    "description": "slash",
+    "$defs": { "a/b": { "type": "null" } },
+  }
+  assert_true(@schema.compile(named).accepts("null"))
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/a",
+        "$defs": { "a": { "$ref": "#/$defs/a" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/a",
+        "$defs": { "a": { "$ref": "#/$defs/b" }, "b": { "$ref": "#/$defs/a" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => @schema.compile({ "$ref": "https://example.com/s.json" })),
+  )
+  assert_true(raises(() => @schema.compile({ "$ref": "other.json#/$defs/a" })))
+  assert_true(raises(() => @schema.compile({ "$ref": "#/definitions/a" })))
+  assert_true(raises(() => @schema.compile({ "$ref": "#/$defs/missing" })))
+  assert_true(raises(() => @schema.compile({ "$ref": "#/$defs/a/b" })))
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "object",
+        "properties": { "a": { "type": "string", "$defs": {} } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/t",
+        "type": "string",
+        "$defs": { "t": { "type": "null" } },
+      })
+    }),
+  )
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-e2e-seed-0000000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=40) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 15)
+}
+
+///|
 test "hand-written invalid documents are rejected" {
   let dfa = @schema.compile(e2e_schemas()[0])
   assert_true(
