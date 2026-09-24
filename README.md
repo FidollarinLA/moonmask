@@ -54,7 +54,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - `array`，必须有 `items`，可带 `minItems` / `maxItems`。
 - `anyOf`，以及 `type` 写成类型数组。
 - 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
-- 根 schema 上的 `$defs`。`$ref` 只能是 `#/$defs/名字`（名字按 JSON Pointer 转义，`~1` 表示 `/`），并在编译时展开。允许一串没有环的引用。`$ref` 旁边可以再写 `type`、`enum`、`const`，结果必须同时满足引用和这些关键字；跟被引用 schema 没有交集就报错。`minLength`、`pattern` 以及其他关键字写在 `$ref` 旁边仍然报错。被引用的 schema 自己如果又在 `$ref` 旁边写了约束，外面再写 `type` 来收窄时也会报错。环、文档外的 URL、`#/definitions/`、指向 `$defs` 里面再往下的指针，以及写在根以外的 `$defs`，都会报错。
+- 根 schema 上的 `$defs`。`$ref` 只能是 `#/$defs/名字`（名字按 JSON Pointer 转义，`~1` 表示 `/`），并在编译时展开。允许一串没有环的引用。`$ref` 旁边可以再写 `type`、`enum`、`const`、`minLength`、`maxLength`、`pattern`。这些关键字和被引用 schema 一起生效；没有交集就报错，不会生成空语言。长度仍按解码后的码点数，`pattern` 仍是不锚定的 ASCII 安全子集，写不进这个子集的 pattern 会报错。`minLength`、`maxLength`、`pattern` 只保留满足它们的字符串。被引用 schema 是字符串和其他类型的并集时，只留下这个字符串部分；如果引用根本给不出这样的字符串，就报错。别的关键字写在 `$ref` 旁边仍然报错。被引用的 schema 自己如果已经在 `$ref` 旁边写了约束，外面再收窄时也会报错。环、文档外的 URL、`#/definitions/`、指向 `$defs` 里面再往下的指针，以及写在根以外的 `$defs`，都会报错。
 - 其余关键字，包括 `format`、`multipleOf`、`oneOf`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
 
 ## GBNF 子集
@@ -77,7 +77,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - object 会输出每一个声明过的属性，不省略可选字段。
 - 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
 - 数值边界本身最多 15 位整数和 15 位小数；超出这个范围会报错，而不是截断。带范围的 `number` 不生成指数。
-- `$ref` 不能成环，也不能指向另一份文档。递归 schema 不支持。`$ref` 旁边除了 `type`、`enum`、`const`，别的约束不会和引用一起生效。
+- `$ref` 不能成环，也不能指向另一份文档。递归 schema 不支持。`$ref` 旁边除了 `type`、`enum`、`const`、`minLength`、`maxLength`、`pattern`，别的约束不会和引用一起生效。被引用 schema 自己旁边已经有约束时，外面不能再收窄。
 - GBNF 子集不能递归，不能带参数，也不能写 Unicode 属性或非 ASCII 字符类。入口是第一条规则，不是名字叫 `root` 的那条。
 
 ## 设计

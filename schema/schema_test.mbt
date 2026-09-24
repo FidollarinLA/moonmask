@@ -868,12 +868,116 @@ test "siblings of $ref apply when they do not conflict" {
       })
     }),
   )
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-sibling-seed-000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
+test "length and pattern beside $ref narrow the referenced string" {
+  let bounded : Json = {
+    "$ref": "#/$defs/s",
+    "minLength": 2,
+    "maxLength": 4,
+    "pattern": "a+",
+    "description": "short a",
+    "$defs": { "s": { "type": "string" } },
+  }
+  expect_json(bounded, "\"aa\"", true)
+  expect_json(bounded, "\"aaaa\"", true)
+  expect_json(bounded, "\"a\"", false)
+  expect_json(bounded, "\"aaaaa\"", false)
+  expect_json(bounded, "\"bb\"", false)
+  expect_json(bounded, "\"aba\"", true)
+  let tightened : Json = {
+    "$ref": "#/$defs/a",
+    "minLength": 2,
+    "maxLength": 3,
+    "$defs": {
+      "a": { "$ref": "#/$defs/b" },
+      "b": { "type": "string", "minLength": 1, "maxLength": 4, "pattern": "a+" },
+    },
+  }
+  expect_json(tightened, "\"aa\"", true)
+  expect_json(tightened, "\"aaa\"", true)
+  expect_json(tightened, "\"ba\"", true)
+  expect_json(tightened, "\"a\"", false)
+  expect_json(tightened, "\"aaaa\"", false)
+  expect_json(tightened, "\"bb\"", false)
+  let both : Json = {
+    "$ref": "#/$defs/s",
+    "pattern": "b",
+    "minLength": 2,
+    "maxLength": 2,
+    "$defs": { "s": { "type": "string", "pattern": "a" } },
+  }
+  expect_json(both, "\"ab\"", true)
+  expect_json(both, "\"ba\"", true)
+  expect_json(both, "\"aa\"", false)
+  expect_json(both, "\"bb\"", false)
+  expect_json(both, "\"a\"", false)
+  let inside : Json = {
+    "type": "object",
+    "properties": {
+      "a": { "$ref": "#/$defs/s", "minLength": 2, "pattern": "ab" },
+    },
+    "additionalProperties": false,
+    "$defs": { "s": { "type": "string", "maxLength": 4 } },
+  }
+  expect_json(inside, "{\"a\":\"ab\"}", true)
+  expect_json(inside, "{\"a\":\"xab\"}", true)
+  expect_json(inside, "{\"a\":\"a\"}", false)
+  expect_json(inside, "{\"a\":\"ba\"}", false)
+  expect_json(inside, "{\"a\":\"ababx\"}", false)
+  let listed : Json = {
+    "$ref": "#/$defs/s",
+    "enum": ["ab", "cd", "a"],
+    "pattern": "a",
+    "$defs": { "s": { "type": "string", "maxLength": 3 } },
+  }
+  expect_json(listed, "\"ab\"", true)
+  expect_json(listed, "\"a\"", true)
+  expect_json(listed, "\"cd\"", false)
+  let fixed : Json = {
+    "$ref": "#/$defs/s",
+    "const": "hi",
+    "pattern": "h",
+    "$defs": { "s": { "type": "string" } },
+  }
+  expect_json(fixed, "\"hi\"", true)
+  expect_json(fixed, "\"h\"", false)
+  let one : Json = {
+    "$ref": "#/$defs/s",
+    "maxLength": 1,
+    "$defs": { "s": { "type": "string" } },
+  }
+  expect_json(one, "\"é\"", true)
+  expect_json(one, "\"\\n\"", true)
+  expect_json(one, "\"😀\"", true)
+  expect_json(one, "\"ab\"", false)
+  expect_json(one, "\"e\u{0301}\"", false)
+  let mixed : Json = {
+    "$ref": "#/$defs/v",
+    "maxLength": 2,
+    "$defs": { "v": { "type": ["string", "integer"] } },
+  }
+  expect_json(mixed, "\"ab\"", true)
+  expect_json(mixed, "\"abc\"", false)
+  assert_false(@schema.compile(mixed).accepts("1"))
   assert_true(
     raises(() => {
       @schema.compile({
-        "$ref": "#/$defs/s",
+        "$ref": "#/$defs/n",
         "minLength": 1,
-        "$defs": { "s": { "type": "string" } },
+        "$defs": { "n": { "type": "integer" } },
       })
     }),
   )
@@ -881,12 +985,63 @@ test "siblings of $ref apply when they do not conflict" {
     raises(() => {
       @schema.compile({
         "$ref": "#/$defs/s",
+        "maxLength": 2,
+        "$defs": { "s": { "type": "string", "minLength": 4 } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "pattern": "ab",
+        "$defs": { "s": { "type": "string", "maxLength": 1 } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "const": "no",
         "pattern": "a",
         "$defs": { "s": { "type": "string" } },
       })
     }),
   )
-  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-sibling-seed-000000")
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "pattern": "(?=a)",
+        "$defs": { "s": { "type": "string" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "pattern": ".",
+        "$defs": { "s": { "type": "string" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/outer",
+        "maxLength": 3,
+        "$defs": {
+          "outer": { "$ref": "#/$defs/inner", "minLength": 1 },
+          "inner": { "type": "string" },
+        },
+      })
+    }),
+  )
+  let validator = @moonschema.Schema::new(bounded)
+  let dfa = @schema.compile(bounded)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-text-seed-000000000")
   let mut produced = 0
   for _ in 0..<40 {
     guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
