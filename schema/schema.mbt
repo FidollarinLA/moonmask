@@ -424,7 +424,10 @@ fn follow_chain(
   stack : Array[String],
   here : String,
 ) -> (Map[String, Json], ChainLimit, String) raise SchemaError {
-  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
+  guard schema is Object(raw) else { raise Unsupported("boolean schema") }
+  // `$defs` was checked when this object was expanded. It does not constrain
+  // the instance, so a reference chain must not treat it as a sibling keyword.
+  let fields = drop_defs(raw)
   match fields.get("$ref") {
     None => (fields, empty_limit(), here)
     Some(target) => {

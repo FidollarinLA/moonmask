@@ -1255,6 +1255,98 @@ test "$defs on the current schema are addressed by pointer" {
 }
 
 ///|
+test "defs on a referenced schema are not extra constraints" {
+  let terminal : Json = {
+    "$ref": "#/$defs/s",
+    "maxLength": 2,
+    "$defs": {
+      "s": {
+        "type": "string",
+        "minLength": 1,
+        "$defs": { "note": { "type": "null" } },
+      },
+    },
+  }
+  expect_json(terminal, "\"a\"", true)
+  expect_json(terminal, "\"ab\"", true)
+  expect_json(terminal, "\"\"", false)
+  expect_json(terminal, "\"abc\"", false)
+  expect_json(terminal, "1", false)
+  let wrapped : Json = {
+    "$ref": "#/$defs/wrap",
+    "maxLength": 2,
+    "pattern": "b",
+    "$defs": {
+      "wrap": {
+        "$ref": "#/$defs/s",
+        "minLength": 1,
+        "pattern": "a",
+        "$defs": { "note": { "type": "null" } },
+      },
+      "s": { "type": "string", "maxLength": 3 },
+    },
+  }
+  expect_json(wrapped, "\"ab\"", true)
+  expect_json(wrapped, "\"ba\"", true)
+  expect_json(wrapped, "\"abc\"", false)
+  expect_json(wrapped, "\"bb\"", false)
+  expect_json(wrapped, "\"\"", false)
+  let placed : Json = {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "a": {
+        "$ref": "#/properties/a/$defs/s",
+        "maxLength": 2,
+        "$defs": {
+          "s": {
+            "type": "string",
+            "minLength": 1,
+            "$defs": { "note": { "type": "null" } },
+          },
+        },
+      },
+    },
+  }
+  expect_json(placed, "{\"a\":\"ab\"}", true)
+  expect_json(placed, "{\"a\":\"abc\"}", false)
+  expect_json(placed, "{\"a\":\"\"}", false)
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "maxLength": 1,
+        "$defs": {
+          "s": { "type": "string", "$defs": { "bad": { "format": "email" } } },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "maxLength": 1,
+        "$defs": { "s": { "type": "string", "$defs": [] } },
+      })
+    }),
+  )
+  let validator = @moonschema.Schema::new(wrapped)
+  let dfa = @schema.compile(wrapped)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-defs-chain-seed-0000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
 test "hand-written invalid documents are rejected" {
   let dfa = @schema.compile(e2e_schemas()[0])
   assert_true(
