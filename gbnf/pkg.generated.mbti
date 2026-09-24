@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "FidollarinLA/moonmask/gbnf"
+
+import {
+  "FidollarinLA/moonmask/regex",
+}
+
+// Values
+pub fn accepts(String, Bytes) -> Bool raise GrammarError
+
+pub fn compile(String) -> @regex.Dfa raise GrammarError
+
+// Errors
+pub suberror GrammarError {
+  GrammarError(pos~ : Int, msg~ : String)
+}
+pub fn GrammarError::output(Self, &Logger) -> Unit
+pub fn GrammarError::to_string(Self) -> String
+pub impl Show for GrammarError
+
+// Types and methods
+
+// Type aliases
+
+// Traits

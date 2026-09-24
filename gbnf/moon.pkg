@@ -1,0 +1,8 @@
+import {
+  "FidollarinLA/moonmask/regex",
+  "moonbitlang/core/encoding/utf8",
+}
+
+import {
+  "moonbitlang/core/random",
+} for "test"
