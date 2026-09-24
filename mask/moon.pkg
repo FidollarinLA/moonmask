@@ -1,0 +1,12 @@
+import {
+  "FidollarinLA/moonmask/regex",
+  "FidollarinLA/moonmask/vocab",
+  "moonbitlang/core/random",
+  "moonbitlang/core/debug",
+}
+
+import {
+  "FidollarinLA/moonmask/schema",
+  "moonbitlang/regexp",
+  "moonbitlang/core/encoding/utf8",
+} for "test"

@@ -1,0 +1,39 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "FidollarinLA/moonmask/mask"
+
+import {
+  "FidollarinLA/moonmask/regex",
+  "FidollarinLA/moonmask/vocab",
+  "moonbitlang/core/debug",
+  "moonbitlang/core/random",
+}
+
+// Values
+pub fn monkey(Guide, @random.Rand, max_tokens~ : Int) -> Sampled
+
+pub fn monkey_unmasked(@vocab.Vocab, @random.Rand, max_tokens~ : Int) -> Sampled
+
+// Errors
+
+// Types and methods
+pub struct Guide {
+  dfa : @regex.Dfa
+  vocab : @vocab.Vocab
+  cache : Map[Int, Array[(Int, Int)]]
+}
+pub fn Guide::advance(Self, Int, Int) -> Int?
+pub fn Guide::allowed(Self, Int) -> Array[Int]
+pub fn Guide::is_accept(Self, Int) -> Bool
+pub fn Guide::new(@regex.Dfa, @vocab.Vocab) -> Self
+pub fn Guide::start(Self) -> Int
+pub fn Guide::transitions(Self, Int) -> Array[(Int, Int)]
+
+pub(all) struct Sampled {
+  tokens : Array[Int]
+  text : Bytes
+  finished : Bool
+} derive(@debug.Debug)
+
+// Type aliases
+
+// Traits
