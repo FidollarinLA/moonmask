@@ -1,0 +1,38 @@
+{
+  "anyOf": [
+    {
+      "type": "object",
+      "properties": {
+        "tool": { "const": "get_weather" },
+        "args": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string", "minLength": 2, "maxLength": 10 },
+            "unit": { "enum": ["c", "f"] }
+          },
+          "required": ["city", "unit"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["tool", "args"],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "tool": { "const": "search" },
+        "args": {
+          "type": "object",
+          "properties": {
+            "query": { "type": "string", "minLength": 1, "maxLength": 16 },
+            "top_k": { "type": "integer" }
+          },
+          "required": ["query", "top_k"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["tool", "args"],
+      "additionalProperties": false
+    }
+  ]
+}
