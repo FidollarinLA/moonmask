@@ -45,7 +45,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 
 ## 支持的 JSON Schema 子集
 
-- `string`，可带 `minLength` / `maxLength`。内容是 ASCII 可见字符和常见转义 `\" \\ \/ \b \f \n \r \t`。`pattern` 是不锚定的安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。`.`、锚点、`\s` 和「pattern 再加长度」会报错。
+- `string`，可带 `minLength` / `maxLength`。长度按 JSON 解码后的字符数计算，`\n` 这类转义算 1 个字符，不按源码字节数计算。内容是 ASCII 可见字符和常见转义 `\" \\ \/ \b \f \n \r \t`。`pattern` 是不锚定的安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。它可以和长度同时使用。`.`、锚点、`\s` 以及其他写不进这个子集的 pattern 会报错，不会被忽略。
 - `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。可带 `minimum` / `maximum`。`exclusiveMinimum` / `exclusiveMaximum` 必须是数字，表示开区间；同时写时取更紧的一侧。
 - `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
 - `boolean`、`null`。

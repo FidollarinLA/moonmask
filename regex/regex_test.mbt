@@ -122,6 +122,18 @@ test "distance counts bytes to the nearest accepting state" {
 }
 
 ///|
+test "length-bounded json characters keep pattern overlaps" {
+  let d = @regex.compile("\"(?@4,4,3:aab)\"")
+  assert_true(d.accepts("\"aaab\""))
+  assert_false(d.accepts("\"aaaa\""))
+  assert_false(d.accepts("\"aab\""))
+  let escaped = @regex.compile("\"(?@2,2,1:a)\"")
+  assert_true(escaped.accepts("\"\\na\""))
+  assert_false(escaped.accepts("\"\\n\\n\""))
+  assert_false(escaped.accepts("\"a\""))
+}
+
+///|
 test "string patterns keep only raw JSON bytes" {
   assert_eq(@regex.string_pattern("a+"), "(?:a+)")
   assert_eq(@regex.string_pattern("[0-9]{2}"), "(?:[0-9]{2})")

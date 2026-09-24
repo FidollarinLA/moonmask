@@ -21,6 +21,8 @@ priv enum Ast {
   Concat(Array[Ast])
   Alt(Array[Ast])
   Repeat(Ast, Int, Int?)
+  /// Pattern plus decoded-character bounds. `max` is `None` when unbounded.
+  JsonChars(String, Int, Int?)
 }
 
 ///|
@@ -201,10 +203,11 @@ fn Parser::group(self : Parser) -> Ast raise ParseError {
   self.pos += 1
   if self.peek() is Some('?') {
     self.pos += 1
-    if !(self.peek() is Some(':')) {
-      self.fail("only (?:...) groups are supported")
+    match self.peek() {
+      Some(':') => self.pos += 1
+      Some('@') => return self.json_chars()
+      _ => self.fail("only (?:...) groups are supported")
     }
-    self.pos += 1
   }
   let inner = self.alt()
   if !(self.peek() is Some(')')) {
@@ -212,6 +215,61 @@ fn Parser::group(self : Parser) -> Ast raise ParseError {
   }
   self.pos += 1
   inner
+}
+
+///|
+fn Parser::read_int(self : Parser) -> Int raise ParseError {
+  let mut sign = 1
+  if self.peek() is Some('-') {
+    sign = -1
+    self.pos += 1
+  }
+  let mut n = 0
+  let mut digits = 0
+  while self.peek() is Some(c) && c >= '0' && c <= '9' {
+    n = n * 10 + (c.to_int() - '0'.to_int())
+    digits += 1
+    self.pos += 1
+  }
+  if digits == 0 {
+    self.fail("expected a number")
+  }
+  n * sign
+}
+
+///|
+/// `(?@min,max,len:pattern)` where `max` is `-1` when there is no maximum.
+fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
+  self.pos += 1
+  let min = self.read_int()
+  if !(self.peek() is Some(',')) {
+    self.fail("expected ,")
+  }
+  self.pos += 1
+  let max_n = self.read_int()
+  if !(self.peek() is Some(',')) {
+    self.fail("expected ,")
+  }
+  self.pos += 1
+  let plen = self.read_int()
+  if !(self.peek() is Some(':')) {
+    self.fail("expected :")
+  }
+  self.pos += 1
+  if plen < 0 || self.pos + plen > self.chars.length() {
+    self.fail("pattern length exceeds the group")
+  }
+  let buf = StringBuilder()
+  for _ in 0..<plen {
+    buf.write_char(self.chars[self.pos])
+    self.pos += 1
+  }
+  if !(self.peek() is Some(')')) {
+    self.fail("missing )")
+  }
+  self.pos += 1
+  let max = if max_n < 0 { None } else { Some(max_n) }
+  JsonChars(buf.to_string(), min, max)
 }
 
 ///|

@@ -23,6 +23,11 @@ fn ByteSet::contains(self : ByteSet, b : Int) -> Bool {
 }
 
 ///|
+fn ByteSet::add_byte(self : ByteSet, b : Int) -> Unit {
+  self.bits[b] = true
+}
+
+///|
 /// Bytes that JSON writes as themselves inside a string: printable ASCII except `"` and `\`.
 fn ByteSet::json_literal_bytes(self : ByteSet) -> Bool {
   for b in 0..<256 {
