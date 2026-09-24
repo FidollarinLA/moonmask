@@ -267,6 +267,260 @@ fn gen(schema : Json) -> String raise SchemaError {
 }
 
 ///|
+/// `type`, `enum`, and `const` beside `$ref` narrow the referenced schema.
+/// Any other sibling keyword is rejected. A sibling that cannot overlap the
+/// reference is rejected rather than ignored.
+fn ref_siblings(
+  fields : Map[String, Json],
+) -> (Json?, Json?, Json?) raise SchemaError {
+  let mut sib_type : Json? = None
+  let mut sib_enum : Json? = None
+  let mut sib_const : Json? = None
+  for key in fields.keys() {
+    if key == "$ref" || is_annotation(key) {
+      continue
+    }
+    match key {
+      "type" => sib_type = fields.get("type")
+      "enum" => sib_enum = fields.get("enum")
+      "const" => sib_const = fields.get("const")
+      _ => raise Unsupported("$ref")
+    }
+  }
+  (sib_type, sib_enum, sib_const)
+}
+
+///|
+fn apply_ref_siblings(
+  body : Json,
+  sib_type : Json?,
+  sib_enum : Json?,
+  sib_const : Json?,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
+  if sib_enum is Some(_) && sib_const is Some(_) {
+    raise Unsupported("enum/const with other constraints")
+  }
+  if sib_enum is Some(_) || sib_const is Some(_) {
+    ref_enum(body, sib_type, sib_enum, sib_const, defs, stack)
+  } else {
+    guard sib_type is Some(ty) else { raise Invalid("$ref") }
+    ref_type(body, ty, defs, stack)
+  }
+}
+
+///|
+fn ref_enum(
+  body : Json,
+  sib_type : Json?,
+  sib_enum : Json?,
+  sib_const : Json?,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
+  let values = match (sib_const, sib_enum) {
+    (Some(value), None) => [value]
+    (None, Some(Array(items))) => items
+    (None, Some(_)) => raise Invalid("enum")
+    _ => raise Invalid("$ref")
+  }
+  let types = match sib_type {
+    None => None
+    Some(ty) => Some(type_names(ty))
+  }
+  let pattern = expand(body, defs, stack)
+  let dfa = try @regex.compile(pattern) catch {
+    @regex.ParseError(msg~, ..) => raise Invalid(msg)
+  } noraise {
+    dfa => dfa
+  }
+  let parts : Array[String] = []
+  for value in values {
+    if types is Some(types) && !matches_types(value, types) {
+      continue
+    }
+    if dfa.accepts(value.stringify()) && !parts.contains(literal(value)) {
+      parts.push(literal(value))
+    }
+  }
+  if parts.is_empty() {
+    raise Invalid("$ref")
+  }
+  alt(parts)
+}
+
+///|
+fn ref_type(
+  body : Json,
+  sib_type : Json,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
+  let want = type_names(sib_type)
+  let core = follow_pure(body, defs, stack)
+  match core.get("type") {
+    Some(ty) => {
+      let both = intersect_types(type_names(ty), want)
+      if both.is_empty() {
+        raise Invalid("$ref")
+      }
+      if same_types(both, type_names(ty)) {
+        expand_fields(core, defs, stack)
+      } else {
+        expand_fields(with_type(core, both, type_json(both)), defs, stack)
+      }
+    }
+    None =>
+      if core.get("enum") is Some(_) || core.get("const") is Some(_) {
+        expand_fields(with_type(core, want, type_json(want)), defs, stack)
+      } else {
+        raise Unsupported("$ref")
+      }
+  }
+}
+
+///|
+fn follow_pure(
+  schema : Json,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> Map[String, Json] raise SchemaError {
+  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
+  match fields.get("$ref") {
+    None => fields
+    Some(target) => {
+      for key in fields.keys() {
+        if key != "$ref" && !is_annotation(key) {
+          raise Unsupported("$ref")
+        }
+      }
+      guard target is String(pointer) else { raise Invalid("$ref") }
+      let name = ref_name(pointer)
+      if stack.contains(name) {
+        raise Invalid("$ref cycle")
+      }
+      match defs.get(name) {
+        None => raise Invalid("$ref")
+        Some(body) => follow_pure(body, defs, push_ref(stack, name))
+      }
+    }
+  }
+}
+
+///|
+fn type_names(value : Json) -> Array[String] raise SchemaError {
+  let names = match value {
+    String(ty) => [ty]
+    Array(items) => {
+      let names : Array[String] = []
+      for item in items {
+        guard item is String(ty) else { raise Invalid("type") }
+        names.push(ty)
+      }
+      names
+    }
+    _ => raise Invalid("type")
+  }
+  if names.is_empty() {
+    raise Invalid("type")
+  }
+  for name in names {
+    match name {
+      "string"
+      | "integer"
+      | "number"
+      | "boolean"
+      | "null"
+      | "object"
+      | "array" => ()
+      _ => raise Invalid("type")
+    }
+  }
+  names
+}
+
+///|
+fn intersect_types(have : Array[String], want : Array[String]) -> Array[String] {
+  let out : Array[String] = []
+  for name in have {
+    if want.contains(name) && !out.contains(name) {
+      out.push(name)
+    }
+  }
+  out
+}
+
+///|
+fn same_types(left : Array[String], right : Array[String]) -> Bool {
+  if left.length() != right.length() {
+    return false
+  }
+  for name in left {
+    if !right.contains(name) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn with_type(
+  fields : Map[String, Json],
+  types : Array[String],
+  type_value : Json,
+) -> Map[String, Json] {
+  let allow : Array[String] = []
+  for ty in types {
+    for key in keys_for(ty) {
+      if !allow.contains(key) {
+        allow.push(key)
+      }
+    }
+  }
+  let kept : Array[(String, Json)] = []
+  for key, value in fields {
+    if key == "type" {
+      continue
+    }
+    if is_annotation(key) ||
+      key == "enum" ||
+      key == "const" ||
+      allow.contains(key) {
+      kept.push((key, value))
+    }
+  }
+  kept.push(("type", type_value))
+  Map::from_array(kept)
+}
+
+///|
+fn type_json(types : Array[String]) -> Json raise SchemaError {
+  let buf = StringBuilder()
+  if types.length() == 1 {
+    buf.write_string("\"")
+    buf.write_string(types[0])
+    buf.write_string("\"")
+  } else {
+    buf.write_string("[")
+    for i, name in types {
+      if i > 0 {
+        buf.write_string(",")
+      }
+      buf.write_string("\"")
+      buf.write_string(name)
+      buf.write_string("\"")
+    }
+    buf.write_string("]")
+  }
+  try @json.parse(buf.to_string()) catch {
+    _ => raise Invalid("type")
+  } noraise {
+    value => value
+  }
+}
+
+///|
 fn expand(
   schema : Json,
   defs : Map[String, Json],
@@ -288,19 +542,23 @@ fn expand_fields(
     }
   }
   if fields.get("$ref") is Some(target) {
-    for key in fields.keys() {
-      if key != "$ref" && !is_annotation(key) {
-        raise Unsupported("$ref")
-      }
-    }
+    let (sib_type, sib_enum, sib_const) = ref_siblings(fields)
     guard target is String(pointer) else { raise Invalid("$ref") }
     let name = ref_name(pointer)
     if stack.contains(name) {
       raise Invalid("$ref cycle")
     }
     match defs.get(name) {
-      Some(body) => return expand(body, defs, push_ref(stack, name))
       None => raise Invalid("$ref")
+      Some(body) => {
+        let next = push_ref(stack, name)
+        if sib_type is None && sib_enum is None && sib_const is None {
+          return expand(body, defs, next)
+        }
+        return apply_ref_siblings(
+          body, sib_type, sib_enum, sib_const, defs, next,
+        )
+      }
     }
   }
   if fields.get("const") is Some(_) || fields.get("enum") is Some(_) {

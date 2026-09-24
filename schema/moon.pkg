@@ -1,5 +1,6 @@
 import {
   "FidollarinLA/moonmask/regex",
+  "moonbitlang/core/json",
 }
 
 import {
