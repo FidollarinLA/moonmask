@@ -26,9 +26,15 @@ pub fn string_pattern(pattern : String) -> String raise ParseError {
 }
 
 ///|
-/// One decoded JSON string character: a raw byte, or a two-byte escape.
+/// One decoded JSON string character: a raw ASCII byte, a short escape, or one
+/// well-formed non-ASCII UTF-8 code point. Overlongs and surrogates are absent.
 let json_char : String =
-  #|(?:[ !#-\[\]-~]|\\["\\/bfnrt])
+  #|(?:[ !#-\[\]-~]|\\["\\/bfnrt]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC][\x80-\xBF][\x80-\xBF]|\xED[\x80-\x9F][\x80-\xBF]|[\xEE-\xEF][\x80-\xBF][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF][\x80-\xBF]|[\xF1-\xF3][\x80-\xBF][\x80-\xBF][\x80-\xBF]|\xF4[\x80-\x8F][\x80-\xBF][\x80-\xBF])
+
+///|
+pub fn json_unit() -> String {
+  json_char
+}
 
 ///|
 fn json_alphabet() -> ByteSet {
@@ -98,8 +104,65 @@ fn Nfa::move_literals(self : Nfa, from : Int, to : (Int) -> Int) -> Unit {
 }
 
 ///|
+fn Nfa::step_bytes(
+  self : Nfa,
+  from : Int,
+  lo : Int,
+  hi : Int,
+) -> Int raise ParseError {
+  let next = self.add_state()
+  self.moves[from].push((ByteSet::of_range(lo, hi), next))
+  next
+}
+
+///|
+fn Nfa::finish_bytes(
+  self : Nfa,
+  from : Int,
+  lo : Int,
+  hi : Int,
+  dest : Int,
+) -> Unit {
+  self.moves[from].push((ByteSet::of_range(lo, hi), dest))
+}
+
+///|
+/// Lead state of one non-ASCII code point. Every complete sequence ends at `dest`.
+fn Nfa::utf8_lead(self : Nfa, dest : Int) -> Int raise ParseError {
+  let entry = self.add_state()
+  let two = self.step_bytes(entry, 0xC2, 0xDF)
+  self.finish_bytes(two, 0x80, 0xBF, dest)
+  let e0 = self.step_bytes(entry, 0xE0, 0xE0)
+  let e0b = self.step_bytes(e0, 0xA0, 0xBF)
+  self.finish_bytes(e0b, 0x80, 0xBF, dest)
+  let e1 = self.step_bytes(entry, 0xE1, 0xEC)
+  let e1b = self.step_bytes(e1, 0x80, 0xBF)
+  self.finish_bytes(e1b, 0x80, 0xBF, dest)
+  let ed = self.step_bytes(entry, 0xED, 0xED)
+  let edb = self.step_bytes(ed, 0x80, 0x9F)
+  self.finish_bytes(edb, 0x80, 0xBF, dest)
+  let ee = self.step_bytes(entry, 0xEE, 0xEF)
+  let eeb = self.step_bytes(ee, 0x80, 0xBF)
+  self.finish_bytes(eeb, 0x80, 0xBF, dest)
+  let f0 = self.step_bytes(entry, 0xF0, 0xF0)
+  let f0b = self.step_bytes(f0, 0x90, 0xBF)
+  let f0c = self.step_bytes(f0b, 0x80, 0xBF)
+  self.finish_bytes(f0c, 0x80, 0xBF, dest)
+  let f1 = self.step_bytes(entry, 0xF1, 0xF3)
+  let f1b = self.step_bytes(f1, 0x80, 0xBF)
+  let f1c = self.step_bytes(f1b, 0x80, 0xBF)
+  self.finish_bytes(f1c, 0x80, 0xBF, dest)
+  let f4 = self.step_bytes(entry, 0xF4, 0xF4)
+  let f4b = self.step_bytes(f4, 0x80, 0x8F)
+  let f4c = self.step_bytes(f4b, 0x80, 0xBF)
+  self.finish_bytes(f4c, 0x80, 0xBF, dest)
+  entry
+}
+
+///|
 /// `(?@min,max,len:pattern)` counts decoded characters. `\` starts an escape and
 /// does not increment the length; the second byte does. `\/` is the character `/`.
+/// A non-ASCII code point counts as one character and cannot continue an ASCII pattern.
 fn Nfa::json_chars(
   self : Nfa,
   pattern : String,
@@ -147,6 +210,7 @@ fn Nfa::json_chars(
     }
   }
 
+  let utf8_cache : Map[Int, Int] = Map([])
   for i in 0..<=last {
     for p in 0..<scount {
       let from = boundary[at(i, p)]
@@ -159,6 +223,17 @@ fn Nfa::json_chars(
       }
       guard next is Some(next_i) else { continue }
       self.move_literals(from, b => boundary[at(next_i, advance(p, b))])
+      let reset = if search.is_accept(p) { p } else { search.start }
+      let dest = boundary[at(next_i, reset)]
+      let lead = match utf8_cache.get(dest) {
+        Some(entry) => entry
+        None => {
+          let entry = self.utf8_lead(dest)
+          utf8_cache[dest] = entry
+          entry
+        }
+      }
+      self.eps[from].push(lead)
       let mid = escaping[at(i, p)]
       self.moves[from].push((backslash, mid))
       let reset = if search.is_accept(p) { p } else { search.start }

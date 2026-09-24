@@ -7,7 +7,9 @@ pub struct Dfa {
 }
 
 ///|
-let max_dfa_states : Int = 20_000
+/// A length bound of 1000 crossed with one UTF-8 sequence is tens of thousands of
+/// states. The cap stays finite so a pathological pattern still fails loudly.
+let max_dfa_states : Int = 100_000
 
 ///|
 /// Distance of the single state of an empty-language DFA; large but safe to add to.

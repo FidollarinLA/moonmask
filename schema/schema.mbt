@@ -17,8 +17,7 @@ pub impl Show for SchemaError with fn output(self, logger) {
 pub extend SchemaError with Show::{to_string}
 
 ///|
-let string_char : String =
-  #|(?:[ !#-\[\]-~]|\\["\\/bfnrt])
+let string_char : String = @regex.json_unit()
 
 ///|
 /// Up to 15 digits, so every accepted integer survives `json.parse` as an exact number.

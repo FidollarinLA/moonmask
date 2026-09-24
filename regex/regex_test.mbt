@@ -122,6 +122,22 @@ test "distance counts bytes to the nearest accepting state" {
 }
 
 ///|
+test "hex escapes are bytes and utf-8 sequences stay well formed" {
+  let d = @regex.compile("\\x61\\x62")
+  assert_true(d.accepts("ab"))
+  assert_false(d.accepts("a"))
+  let unit = @regex.compile(@regex.json_unit())
+  assert_true(unit.accepts("é"))
+  assert_true(unit.accepts("中"))
+  assert_true(unit.accepts("😀"))
+  assert_false(unit.accepts("ab"))
+  assert_false(unit.matches(Bytes::from_array([0x80])))
+  assert_false(unit.matches(Bytes::from_array([0xC0, 0x80])))
+  assert_false(unit.matches(Bytes::from_array([0xED, 0xA0, 0x80])))
+  assert_false(unit.matches(Bytes::from_array([0xC2])))
+}
+
+///|
 test "length-bounded json characters keep pattern overlaps" {
   let d = @regex.compile("\"(?@4,4,3:aab)\"")
   assert_true(d.accepts("\"aaab\""))
