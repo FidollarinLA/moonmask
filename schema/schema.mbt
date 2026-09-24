@@ -78,7 +78,8 @@ fn is_known(key : String) -> Bool {
     | "minimum"
     | "maximum"
     | "exclusiveMinimum"
-    | "exclusiveMaximum" => true
+    | "exclusiveMaximum"
+    | "$ref" => true
     _ => false
   }
 }
@@ -185,11 +186,121 @@ fn reject_foreign(
 }
 
 ///|
+fn read_defs(fields : Map[String, Json]) -> Map[String, Json] raise SchemaError {
+  match fields.get("$defs") {
+    None => Map::from_array([])
+    Some(Object(defs)) => defs
+    Some(_) => raise Invalid("$defs")
+  }
+}
+
+///|
+fn drop_defs(fields : Map[String, Json]) -> Map[String, Json] {
+  let kept : Array[(String, Json)] = []
+  for key, value in fields {
+    if key != "$defs" {
+      kept.push((key, value))
+    }
+  }
+  Map::from_array(kept)
+}
+
+///|
+fn push_ref(stack : Array[String], name : String) -> Array[String] {
+  let next = []
+  for item in stack {
+    next.push(item)
+  }
+  next.push(name)
+  next
+}
+
+///|
+/// `#/$defs/<token>`, one JSON Pointer segment. `~0` is `~` and `~1` is `/`.
+fn ref_name(target : String) -> String raise SchemaError {
+  let prefix = "#/$defs/".to_array()
+  let chars = target.to_array()
+  if chars.length() <= prefix.length() {
+    raise Unsupported("$ref")
+  }
+  for i, c in prefix {
+    if chars[i] != c {
+      raise Unsupported("$ref")
+    }
+  }
+  let buf = StringBuilder()
+  let mut i = prefix.length()
+  while i < chars.length() {
+    let c = chars[i]
+    if c == '/' {
+      raise Unsupported("$ref")
+    } else if c == '~' {
+      if i + 1 >= chars.length() {
+        raise Unsupported("$ref")
+      }
+      match chars[i + 1] {
+        '0' => buf.write_char('~')
+        '1' => buf.write_char('/')
+        _ => raise Unsupported("$ref")
+      }
+      i += 2
+    } else {
+      buf.write_char(c)
+      i += 1
+    }
+  }
+  let name = buf.to_string()
+  if name.length() == 0 {
+    raise Unsupported("$ref")
+  }
+  name
+}
+
+///|
 fn gen(schema : Json) -> String raise SchemaError {
   guard schema is Object(fields) else { raise Unsupported("boolean schema") }
+  let defs = read_defs(fields)
+  for name, body in defs {
+    let _ = expand(body, defs, [name])
+  }
+  expand_fields(drop_defs(fields), defs, [])
+}
+
+///|
+fn expand(
+  schema : Json,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
+  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
+  expand_fields(fields, defs, stack)
+}
+
+///|
+fn expand_fields(
+  fields : Map[String, Json],
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
   for key in fields.keys() {
     if !is_known(key) {
       raise Unsupported(key)
+    }
+  }
+  if fields.get("$ref") is Some(target) {
+    for key in fields.keys() {
+      if key != "$ref" && !is_annotation(key) {
+        raise Unsupported("$ref")
+      }
+    }
+    guard target is String(pointer) else { raise Invalid("$ref") }
+    let name = ref_name(pointer)
+    if stack.contains(name) {
+      raise Invalid("$ref cycle")
+    }
+    match defs.get(name) {
+      Some(body) => return expand(body, defs, push_ref(stack, name))
+      None => raise Invalid("$ref")
     }
   }
   if fields.get("const") is Some(_) || fields.get("enum") is Some(_) {
@@ -200,7 +311,7 @@ fn gen(schema : Json) -> String raise SchemaError {
     guard options is Array(items) else { raise Invalid("anyOf") }
     let parts = []
     for item in items {
-      parts.push(gen(item))
+      parts.push(expand(item, defs, stack))
     }
     return alt(parts)
   }
@@ -217,11 +328,11 @@ fn gen(schema : Json) -> String raise SchemaError {
             kept.push((key, value))
           }
         }
-        parts.push(gen_typed(Map::from_array(kept), ty))
+        parts.push(gen_typed(Map::from_array(kept), ty, defs, stack))
       }
       alt(parts)
     }
-    Some(String(ty)) => gen_typed(fields, ty)
+    Some(String(ty)) => gen_typed(fields, ty, defs, stack)
     Some(_) => raise Invalid("type")
   }
 }
@@ -333,6 +444,8 @@ fn gen_string(fields : Map[String, Json]) -> String raise SchemaError {
 fn gen_typed(
   fields : Map[String, Json],
   ty : String,
+  defs : Map[String, Json],
+  stack : Array[String],
 ) -> String raise SchemaError {
   match ty {
     "string" => gen_string(fields)
@@ -360,14 +473,18 @@ fn gen_typed(
       reject_foreign(fields, ["type"])
       "null"
     }
-    "object" => gen_object(fields)
-    "array" => gen_array(fields)
+    "object" => gen_object(fields, defs, stack)
+    "array" => gen_array(fields, defs, stack)
     _ => raise Unsupported(ty)
   }
 }
 
 ///|
-fn gen_object(fields : Map[String, Json]) -> String raise SchemaError {
+fn gen_object(
+  fields : Map[String, Json],
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
   reject_foreign(fields, [
     "type", "properties", "required", "additionalProperties",
   ])
@@ -396,7 +513,9 @@ fn gen_object(fields : Map[String, Json]) -> String raise SchemaError {
   let pieces = []
   if props is Some(Object(props)) {
     for key, child in props {
-      pieces.push(escape(key.to_json().stringify()) + ":" + gen(child))
+      pieces.push(
+        escape(key.to_json().stringify()) + ":" + expand(child, defs, stack),
+      )
     }
   }
   if pieces.is_empty() {
@@ -415,12 +534,16 @@ fn gen_object(fields : Map[String, Json]) -> String raise SchemaError {
 }
 
 ///|
-fn gen_array(fields : Map[String, Json]) -> String raise SchemaError {
+fn gen_array(
+  fields : Map[String, Json],
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
   reject_foreign(fields, ["type", "items", "minItems", "maxItems"])
   guard fields.get("items") is Some(items) else {
     raise Unsupported("array without items")
   }
-  let item = gen(items)
+  let item = expand(items, defs, stack)
   let min = bound_of(fields, "minItems").unwrap_or(0)
   let max = bound_of(fields, "maxItems")
   if max is Some(max) && min > max {
