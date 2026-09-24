@@ -166,8 +166,11 @@ fn Parser::atom(self : Parser) -> Ast raise ParseError {
     Some('(') => self.group()
     Some('[') => self.class()
     Some('.') => {
+      // Match moonbitlang/regexp: '.' skips U+000A through U+0010, not only LF.
       self.pos += 1
-      Set(ByteSet::of_range('\n'.to_int(), '\n'.to_int()).ascii_complement())
+      let set = ByteSet::of_range(0, '\t'.to_int())
+      set.add_all(ByteSet::of_range('\u{11}'.to_int(), 0x7F))
+      Set(set)
     }
     Some('\\') => Set(self.escape().to_set())
     Some('^' | '$') =>

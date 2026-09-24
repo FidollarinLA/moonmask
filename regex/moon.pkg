@@ -2,3 +2,7 @@ import {
   "moonbitlang/core/random",
   "moonbitlang/core/encoding/utf8",
 }
+
+import {
+  "moonbitlang/regexp",
+} for "test"

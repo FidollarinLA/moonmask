@@ -77,6 +77,7 @@ test "dot matches any ascii byte except newline" {
   let d = @regex.compile("a.c")
   assert_true(d.accepts("a-c"))
   assert_false(d.accepts("a\nc"))
+  assert_false(d.accepts("a\rc"))
   assert_false(d.accepts("a月c"))
 }
 
