@@ -35,13 +35,13 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
   examples/schemas/user.json examples/schemas/order.json examples/schemas/tool_call.json
 ```
 
-在开发机上一次完整运行大约 1.8 秒，结果是：
+在开发机上一次完整运行大约 2 秒。程序会先打印在 GPT-2 词表上、对第一个 schema 的起始状态用前缀树算掩码的耗时。下面这一次是 4.041 微秒（词表 50257，`user.json` 起始状态，2 个 token 能接上；这个状态大部分 token 在第一个字节就走不通）。这只是记录，不是性能门槛，结果是：
 
 | schema | masked valid | unmasked valid | avg tokens (masked) | DFA states |
 | --- | --- | --- | --- | --- |
-| examples/schemas/user.json | 100/100 | 0/100 | 36.42 | 104 |
-| examples/schemas/order.json | 100/100 | 0/100 | 69.29 | 213 |
-| examples/schemas/tool_call.json | 100/100 | 0/100 | 34.74 | 158 |
+| examples/schemas/user.json | 100/100 | 0/100 | 36.79 | 500 |
+| examples/schemas/order.json | 100/100 | 0/100 | 68.29 | 1401 |
+| examples/schemas/tool_call.json | 100/100 | 0/100 | 34.7 | 1016 |
 
 ## 支持的 JSON Schema 子集
 
@@ -69,7 +69,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 
 ## 设计
 
-正则先解析成语法树，再用 Thompson 构造变成 NFA，然后做子集构造得到 DFA。到不了接受状态的状态会被剪掉，每个状态记下到最近接受状态的最短距离。掩码层按 DFA 状态缓存“token → 下一状态”。采样器在预算内均匀选择合法 token；超出预算后只选让距离下降的 token，因此在词表覆盖单字节时一定能结束。
+正则先解析成语法树，再用 Thompson 构造变成 NFA，然后做子集构造得到 DFA。到不了接受状态的状态会被剪掉，每个状态记下到最近接受状态的最短距离。掩码层按 DFA 状态缓存“token → 下一状态”。算这个集合时，词表先收成一棵字节前缀树：相同前缀只沿 DFA 走一次，某个前缀走不通就把整棵子树丢掉。收集到的 token 再按编号排序。排序后的结果和“每个 token 单独走一遍”相同，合法 token 集合不变。结束符仍然只在接受状态放行，空的特殊 token 仍然排除。采样器在预算内均匀选择合法 token；超出预算后只选让距离下降的 token，因此在词表覆盖单字节时一定能结束。
 
 ## 测试
 
@@ -80,6 +80,7 @@ moon test --deny-warn
 - 正则与 `moonbitlang/regexp` 做差分，9000 次以上对照。
 - Schema 自动机随机生成的字符串全部交给 `moonschema` 校验。
 - 有限语言上，掩码允许的 token 与穷举得到的“存在合法补全的 token”一致。
+- 前缀树算出的 token 集合与逐个扫描词表的结果相同：小词表上每个 DFA 状态都对照过，GPT-2 词表上对照过若干状态。
 
 ## 参考与许可证
 

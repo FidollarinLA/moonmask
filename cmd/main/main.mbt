@@ -36,16 +36,22 @@ fn run(args : Array[String]) -> Unit raise {
   let tok = @tokenizer.from_file(args[1])
   let vocab = @vocab.from_tokenizer(tok, eos_token="<|endoftext|>")
   println("vocab size: \{vocab.size()}, runs per schema: \{runs}")
-  println("")
-  println(
-    "| schema | masked valid | unmasked valid | avg tokens (masked) | DFA states |",
-  )
-  println("| --- | --- | --- | --- | --- |")
   let samples : Array[String] = []
+  let mut timed = false
+  let rows : Array[String] = []
   for path in args[2:] {
     let schema = @json.parse(@fs.read_file_to_string(path))
     let dfa = @schema.compile(schema)
     let guide = @mask.Guide::new(dfa, vocab)
+    if !timed {
+      let started = @bench.monotonic_clock_start()
+      let mask = guide.transitions(guide.start())
+      let elapsed_us = @bench.monotonic_clock_end(started)
+      println(
+        "prefix-tree token mask, one DFA state, vocab \{vocab.size()}, allowed \{mask.length()}: \{elapsed_us} us (\{path})",
+      )
+      timed = true
+    }
     let validator = @moonschema.Schema::new(schema)
     let rand = @random.Rand::chacha8(seed~)
     let mut masked_ok = 0
@@ -67,9 +73,17 @@ fn run(args : Array[String]) -> Unit raise {
       }
     }
     let avg = total_tokens.to_double() / runs.to_double()
-    println(
+    rows.push(
       "| \{path} | \{masked_ok}/\{runs} | \{unmasked_ok}/\{runs} | \{avg} | \{dfa.state_count()} |",
     )
+  }
+  println("")
+  println(
+    "| schema | masked valid | unmasked valid | avg tokens (masked) | DFA states |",
+  )
+  println("| --- | --- | --- | --- | --- |")
+  for row in rows {
+    println(row)
   }
   println("")
   for s in samples {

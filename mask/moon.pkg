@@ -7,6 +7,7 @@ import {
 
 import {
   "FidollarinLA/moonmask/schema",
+  "howtomakeaname/tokenizers-moonbit/tokenizer",
   "moonbitlang/regexp",
   "moonbitlang/core/encoding/utf8",
 } for "test"
