@@ -435,13 +435,132 @@ test "string patterns agree with the validator" {
   )
   assert_true(
     raises(() => {
-      @schema.compile({ "type": "string", "pattern": "a", "maxLength": 4 })
+      @schema.compile({ "type": "string", "pattern": ".", "maxLength": 4 })
     }),
   )
   let either = @schema.compile({ "type": ["string", "null"], "pattern": "a+" })
   assert_true(either.accepts("null"))
   assert_true(either.accepts("\"ba\""))
   assert_false(either.accepts("\"b\""))
+}
+
+///|
+fn expect_json(schema : Json, text : String, want : Bool) -> Unit raise {
+  let dfa = @schema.compile(schema)
+  let validator = @moonschema.Schema::new(schema)
+  let ok = validator.valid(@json.parse(text))
+  if ok != want {
+    fail("validator \{schema.stringify()} on \{text}: \{ok}")
+  }
+  if dfa.accepts(text) != want {
+    fail("dfa \{schema.stringify()} on \{text}: \{dfa.accepts(text)}")
+  }
+}
+
+///|
+test "pattern and length count decoded characters" {
+  let short : Json = {
+    "type": "string",
+    "pattern": "a+",
+    "minLength": 1,
+    "maxLength": 3,
+  }
+  expect_json(short, "\"a\"", true)
+  expect_json(short, "\"aa\"", true)
+  expect_json(short, "\"aaa\"", true)
+  expect_json(short, "\"ba\"", true)
+  expect_json(short, "\"ab\"", true)
+  expect_json(short, "\"a\\n\"", true)
+  expect_json(short, "\"\\na\"", true)
+  expect_json(short, "\"\"", false)
+  expect_json(short, "\"b\"", false)
+  expect_json(short, "\"aaaa\"", false)
+  expect_json(short, "\"\\n\\n\"", false)
+  expect_json(short, "\"\\n\\n\\n\\n\"", false)
+  let digits : Json = {
+    "type": "string",
+    "pattern": "[0-9]{2}",
+    "minLength": 2,
+    "maxLength": 4,
+  }
+  expect_json(digits, "\"12\"", true)
+  expect_json(digits, "\"x12\"", true)
+  expect_json(digits, "\"12xy\"", true)
+  expect_json(digits, "\"\\n12\"", true)
+  expect_json(digits, "\"1\"", false)
+  expect_json(digits, "\"ab\"", false)
+  expect_json(digits, "\"12345\"", false)
+  let pair : Json = {
+    "type": "string",
+    "pattern": "ab",
+    "minLength": 2,
+    "maxLength": 4,
+  }
+  expect_json(pair, "\"ab\"", true)
+  expect_json(pair, "\"aab\"", true)
+  expect_json(pair, "\"aaab\"", true)
+  expect_json(pair, "\"\\nab\"", true)
+  expect_json(pair, "\"a\\nb\"", false)
+  expect_json(pair, "\"a\"", false)
+  let slash : Json = {
+    "type": "string",
+    "pattern": "/",
+    "minLength": 1,
+    "maxLength": 1,
+  }
+  expect_json(slash, "\"/\"", true)
+  expect_json(slash, "\"\\/\"", true)
+  expect_json(slash, "\"a\"", false)
+  let open : Json = { "type": "string", "pattern": "a", "minLength": 2 }
+  expect_json(open, "\"ba\"", true)
+  expect_json(open, "\"a\"", false)
+  expect_json(open, "\"bbbb\"", false)
+  let nested = @schema.compile({
+    "type": "object",
+    "properties": { "s": short },
+  })
+  assert_true(nested.accepts("{\"s\":\"aa\"}"))
+  assert_false(nested.accepts("{\"s\":\"b\"}"))
+  assert_false(nested.accepts("{\"s\":\"aaaa\"}"))
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "string",
+        "pattern": "a+",
+        "minLength": 3,
+        "maxLength": 1,
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "string", "pattern": "(?=a)", "maxLength": 2 })
+    }),
+  )
+  let bodies = [
+    "", "a", "b", "aa", "ab", "ba", "bb", "aaa", "aaaa", "12", "1", "x12", "12xy",
+    "12345", "aaab", "\\n", "\\na", "\\n\\n", "a\\n", "a\\nb", "\\/",
+  ]
+  let schemas : Array[Json] = [
+    short,
+    digits,
+    pair,
+    { "type": "string", "pattern": "a*", "minLength": 0, "maxLength": 2 },
+    { "type": "string", "pattern": "z", "minLength": 1, "maxLength": 3 },
+  ]
+  for schema in schemas {
+    let dfa = @schema.compile(schema)
+    let validator = @moonschema.Schema::new(schema)
+    for body in bodies {
+      let text = json_string(body)
+      let ok = validator.valid(@json.parse(text))
+      if dfa.accepts(text) != ok {
+        fail(
+          "\{schema.stringify()} on \{text}: dfa=\{dfa.accepts(text)} validator=\{ok}",
+        )
+      }
+    }
+  }
 }
 
 ///|
@@ -460,6 +579,56 @@ test "sampled patterned strings pass the independent validator" {
     produced += 1
   }
   assert_true(produced > 10)
+}
+
+///|
+test "pattern length bound of 1000 still matches one decoded character" {
+  let schema : Json = {
+    "type": "string",
+    "pattern": "a",
+    "minLength": 1000,
+    "maxLength": 1000,
+  }
+  let dfa = @schema.compile(schema)
+  let buf = StringBuilder()
+  buf.write_char('"')
+  for _ in 0..<999 {
+    buf.write_char('b')
+  }
+  buf.write_char('a')
+  buf.write_char('"')
+  assert_true(dfa.accepts(buf.to_string()))
+  assert_false(dfa.accepts("\"a\""))
+  let too_long = StringBuilder()
+  too_long.write_char('"')
+  for _ in 0..<1001 {
+    too_long.write_char('a')
+  }
+  too_long.write_char('"')
+  assert_false(dfa.accepts(too_long.to_string()))
+}
+
+///|
+test "sampled strings with pattern and length pass the validator" {
+  let schema : Json = {
+    "type": "string",
+    "pattern": "a+",
+    "minLength": 1,
+    "maxLength": 4,
+  }
+  let dfa = @schema.compile(schema)
+  let validator = @moonschema.Schema::new(schema)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-pattern-len-seed-000000")
+  let mut produced = 0
+  for _ in 0..<80 {
+    guard dfa.sample(rand, max_len=40) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 20)
 }
 
 ///|
