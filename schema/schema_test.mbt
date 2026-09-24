@@ -799,14 +799,13 @@ test "local $defs references expand and cycles are rejected" {
   assert_true(raises(() => @schema.compile({ "$ref": "#/definitions/a" })))
   assert_true(raises(() => @schema.compile({ "$ref": "#/$defs/missing" })))
   assert_true(raises(() => @schema.compile({ "$ref": "#/$defs/a/b" })))
-  assert_true(
-    raises(() => {
-      @schema.compile({
-        "type": "object",
-        "properties": { "a": { "type": "string", "$defs": {} } },
-      })
-    }),
-  )
+  let placed : Json = {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": { "a": { "type": "string", "maxLength": 1, "$defs": {} } },
+  }
+  expect_json(placed, "{\"a\":\"z\"}", true)
+  expect_json(placed, "{\"a\":\"zz\"}", false)
   assert_true(
     raises(() => {
       @schema.compile({
@@ -1165,6 +1164,87 @@ test "nested ref constraints intersect" {
   let mut produced = 0
   for _ in 0..<40 {
     guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
+test "$defs on the current schema are addressed by pointer" {
+  let nested : Json = {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "a": {
+        "$ref": "#/properties/a/$defs/s",
+        "minLength": 2,
+        "$defs": { "s": { "type": "string", "maxLength": 4 } },
+      },
+    },
+  }
+  expect_json(nested, "{\"a\":\"ab\"}", true)
+  expect_json(nested, "{\"a\":\"abcd\"}", true)
+  expect_json(nested, "{\"a\":\"a\"}", false)
+  expect_json(nested, "{\"a\":\"abcde\"}", false)
+  expect_json(nested, "{\"a\":1}", false)
+  let split : Json = {
+    "type": "object",
+    "additionalProperties": false,
+    "$defs": { "s": { "type": "integer", "minimum": 0, "maximum": 2 } },
+    "properties": {
+      "n": { "$ref": "#/$defs/s" },
+      "t": {
+        "$defs": { "s": { "type": "string", "minLength": 1, "maxLength": 1 } },
+        "$ref": "#/properties/t/$defs/s",
+      },
+    },
+  }
+  expect_json(split, "{\"n\":1,\"t\":\"a\"}", true)
+  expect_json(split, "{\"n\":3,\"t\":\"a\"}", false)
+  expect_json(split, "{\"n\":1,\"t\":\"ab\"}", false)
+  expect_json(split, "{\"n\":\"a\",\"t\":\"a\"}", false)
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "object",
+        "properties": {
+          "a": { "$defs": { "s": { "type": "string" } }, "$ref": "#/$defs/s" },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/properties/a",
+        "type": "object",
+        "properties": { "a": { "type": "string" } },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "object",
+        "properties": {
+          "a": {
+            "$ref": "#/properties/a/$defs/s",
+            "$defs": { "s": { "$ref": "#/properties/a/$defs/s" } },
+          },
+        },
+      })
+    }),
+  )
+  let validator = @moonschema.Schema::new(nested)
+  let dfa = @schema.compile(nested)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-nested-defs-seed-000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=24) is Some(bytes) else { continue }
     let text = @utf8.decode(bytes)
     if !validator.valid(@json.parse(text)) {
       fail(text)
