@@ -260,38 +260,44 @@ fn Nfa::utf8_lead(self : Nfa, dest : Int) -> Int raise ParseError {
 }
 
 ///|
-/// `(?@min,max,len:pattern)` counts decoded characters. A second pattern is the
-/// same search, and a string is accepted only when both have matched. `\` starts
-/// an escape and does not increment the length; the second byte does. `\/` is
-/// the character `/`. A non-ASCII code point counts as one character and cannot
-/// continue an ASCII pattern.
+/// `(?@min,max,len...:patterns)` counts decoded characters. Every pattern is a
+/// search, and a string is accepted only when all of them have matched. `\`
+/// starts an escape and does not increment the length; the second byte does.
+/// `\/` is the character `/`. A non-ASCII code point counts as one character
+/// and cannot continue an ASCII pattern.
 fn Nfa::json_chars(
   self : Nfa,
   pattern : String,
   min : Int,
   max : Int?,
-  extra : String?,
+  extra : Array[String],
 ) -> (Int, Int) raise ParseError {
-  let search = search_dfa(pattern)
-  let second = match extra {
-    None | Some("") => None
-    Some(other) => Some(search_dfa(other))
+  let searches : Array[Dfa] = []
+  let first = search_dfa(pattern)
+  if !first.is_accept(first.start) {
+    searches.push(first)
   }
-  let second_null = match second {
-    None => true
-    Some(other) => other.is_accept(other.start)
+  for other in extra {
+    if other == "" {
+      continue
+    }
+    let search = search_dfa(other)
+    if !search.is_accept(search.start) {
+      searches.push(search)
+    }
   }
-  if search.is_accept(search.start) && second_null {
+  if searches.length() == 0 {
     return self.build(Repeat(parse(json_char), min, max))
   }
-  let scount = search.state_count()
-  let c2 = match second {
-    None => 1
-    Some(other) => other.state_count()
-  }
-  let start2 = match second {
-    None => 0
-    Some(other) => other.start
+  let n = searches.length()
+  let counts : Array[Int] = []
+  let starts : Array[Int] = []
+  let mut width = 1
+  for search in searches {
+    let count = search.state_count()
+    counts.push(count)
+    starts.push(search.start)
+    width = width * count
   }
   let last = match max {
     None => min
@@ -300,7 +306,7 @@ fn Nfa::json_chars(
   let layers = last + 1
   let boundary : Array[Int] = []
   let escaping : Array[Int] = []
-  for _ in 0..<(layers * scount * c2) {
+  for _ in 0..<(layers * width) {
     boundary.push(self.add_state())
     escaping.push(self.add_state())
   }
@@ -316,59 +322,79 @@ fn Nfa::json_chars(
     'r'.to_int(),
     't'.to_int(),
   ])
-  fn at(i : Int, p : Int, q : Int) -> Int {
-    (i * scount + p) * c2 + q
+  fn at(i : Int, packed : Int) -> Int {
+    i * width + packed
   }
 
-  fn advance(p : Int, b : Int) -> Int {
-    let t = search.step(p, b.to_byte())
-    if t >= 0 {
-      t
-    } else {
-      search.start
+  fn pack(states : Array[Int]) -> Int {
+    let mut idx = 0
+    for k in 0..<n {
+      idx = idx * counts[k] + states[k]
     }
+    idx
   }
 
-  fn accept2(q : Int) -> Bool {
-    match second {
-      None => true
-      Some(other) => other.is_accept(q)
-    }
-  }
-
-  fn advance2(q : Int, b : Int) -> Int {
-    match second {
-      None => 0
-      Some(other) => {
-        let t = other.step(q, b.to_byte())
-        if t >= 0 {
-          t
-        } else {
-          other.start
-        }
+  fn stepped(states : Array[Int], b : Int) -> Int {
+    let next : Array[Int] = []
+    for k in 0..<n {
+      let search = searches[k]
+      let t = search.step(states[k], b.to_byte())
+      if t >= 0 {
+        next.push(t)
+      } else {
+        next.push(search.start)
       }
     }
+    pack(next)
+  }
+
+  fn reset_of(states : Array[Int]) -> Int {
+    let next : Array[Int] = []
+    for k in 0..<n {
+      let search = searches[k]
+      if search.is_accept(states[k]) {
+        next.push(states[k])
+      } else {
+        next.push(search.start)
+      }
+    }
+    pack(next)
   }
 
   let utf8_cache : Map[Int, Int] = Map([])
+  let digits : Array[Int] = []
+  for _ in 0..<n {
+    digits.push(0)
+  }
   for i in 0..<=last {
-    for p in 0..<scount {
-      for q in 0..<c2 {
-        let from = boundary[at(i, p, q)]
-        if i >= min && search.is_accept(p) && accept2(q) {
-          self.eps[from].push(exit)
+    for k in 0..<n {
+      digits[k] = 0
+    }
+    let mut more = true
+    while more {
+      let packed = pack(digits)
+      let from = boundary[at(i, packed)]
+      let mut all_accept = i >= min
+      for k in 0..<n {
+        if !searches[k].is_accept(digits[k]) {
+          all_accept = false
         }
-        let next = match max {
-          None => if i < min { Some(i + 1) } else { Some(i) }
-          Some(bound) => if i < bound { Some(i + 1) } else { None }
+      }
+      if all_accept {
+        self.eps[from].push(exit)
+      }
+      let next = match max {
+        None => if i < min { Some(i + 1) } else { Some(i) }
+        Some(bound) => if i < bound { Some(i + 1) } else { None }
+      }
+      if next is Some(next_i) {
+        let snap : Array[Int] = []
+        for k in 0..<n {
+          snap.push(digits[k])
         }
-        guard next is Some(next_i) else { continue }
-        self.move_literals(from, b => {
-          boundary[at(next_i, advance(p, b), advance2(q, b))]
-        })
-        let reset_p = if search.is_accept(p) { p } else { search.start }
-        let reset_q = if accept2(q) { q } else { start2 }
-        let dest = boundary[at(next_i, reset_p, reset_q)]
+        self.move_literals(from, b => boundary[at(next_i, stepped(snap, b))])
+        let reset = reset_of(snap)
+        let dest = boundary[at(next_i, reset)]
         let lead = match utf8_cache.get(dest) {
           Some(entry) => entry
           None => {
@@ -378,24 +404,30 @@ fn Nfa::json_chars(
           }
         }
         self.eps[from].push(lead)
-        let mid = escaping[at(i, p, q)]
+        let mid = escaping[at(i, packed)]
         self.moves[from].push((backslash, mid))
-        self.moves[mid].push((hidden, boundary[at(next_i, reset_p, reset_q)]))
+        self.moves[mid].push((hidden, boundary[at(next_i, reset)]))
         self.moves[mid].push(
-          (
-            slash,
-            boundary[at(
-              next_i,
-              advance(p, '/'.to_int()),
-              advance2(q, '/'.to_int()),
-            )],
-          ),
+          (slash, boundary[at(next_i, stepped(snap, '/'.to_int()))]),
         )
-        self.link_u(mid, dest, b => {
-          boundary[at(next_i, advance(p, b), advance2(q, b))]
-        })
+        self.link_u(mid, dest, b => boundary[at(next_i, stepped(snap, b))])
+      }
+      let mut k = n - 1
+      let mut carry = true
+      while carry {
+        if k < 0 {
+          more = false
+          break
+        }
+        digits[k] = digits[k] + 1
+        if digits[k] == counts[k] {
+          digits[k] = 0
+          k = k - 1
+        } else {
+          carry = false
+        }
       }
     }
   }
-  (boundary[at(0, search.start, start2)], exit)
+  (boundary[at(0, pack(starts))], exit)
 }
