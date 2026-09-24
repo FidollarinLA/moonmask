@@ -74,7 +74,11 @@ fn is_known(key : String) -> Bool {
     | "maxLength"
     | "enum"
     | "const"
-    | "anyOf" => true
+    | "anyOf"
+    | "minimum"
+    | "maximum"
+    | "exclusiveMinimum"
+    | "exclusiveMaximum" => true
     _ => false
   }
 }
@@ -281,9 +285,15 @@ fn repeat_atom(
 }
 
 ///|
+fn numeric_keys() -> Array[String] {
+  ["type", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum"]
+}
+
+///|
 fn keys_for(ty : String) -> Array[String] {
   match ty {
     "string" => ["type", "minLength", "maxLength"]
+    "integer" | "number" => numeric_keys()
     "object" => ["type", "properties", "required", "additionalProperties"]
     "array" => ["type", "items", "minItems", "maxItems"]
     _ => ["type"]
@@ -303,12 +313,20 @@ fn gen_typed(
       "\"" + repeat_atom(string_char, min, max) + "\""
     }
     "integer" => {
-      reject_foreign(fields, ["type"])
-      integer_re
+      reject_foreign(fields, numeric_keys())
+      let (low, high) = read_ends(fields)
+      match (low, high) {
+        (None, None) => integer_re
+        _ => integer_bounds_regex(low, high)
+      }
     }
     "number" => {
-      reject_foreign(fields, ["type"])
-      integer_re + fraction_exponent_re
+      reject_foreign(fields, numeric_keys())
+      let (low, high) = read_ends(fields)
+      match (low, high) {
+        (None, None) => integer_re + fraction_exponent_re
+        _ => bounded_number(low, high)
+      }
     }
     "boolean" => {
       reject_foreign(fields, ["type"])

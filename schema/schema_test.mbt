@@ -99,7 +99,7 @@ test "arrays with item bounds" {
 ///|
 test "unsupported keywords are rejected, never ignored" {
   assert_true(
-    raises(() => @schema.compile({ "type": "integer", "minimum": 0 })),
+    raises(() => @schema.compile({ "type": "integer", "multipleOf": 2 })),
   )
   assert_true(
     raises(() => @schema.compile({ "type": "string", "pattern": "a+" })),
@@ -178,6 +178,218 @@ test "every sampled string passes the independent validator" {
       produced += 1
     }
     assert_true(produced > 100)
+  }
+}
+
+///|
+fn json_value(text : String) -> Json? {
+  try Some(@json.parse(text)) catch {
+    _ => None
+  } noraise {
+    value => value
+  }
+}
+
+///|
+fn accepts_exactly(schema : Json, text : String) -> Bool raise {
+  let dfa = @schema.compile(schema)
+  if !dfa.accepts(text) {
+    return false
+  }
+  let validator = @moonschema.Schema::new(schema)
+  try validator.valid(@json.parse(text)) catch {
+    _ => false
+  } noraise {
+    ok => ok
+  }
+}
+
+///|
+test "integer bounds match the validator on every nearby integer" {
+  let cases : Array[Json] = [
+    { "type": "integer", "minimum": -3, "maximum": 12 },
+    { "type": "integer", "minimum": 98, "maximum": 105 },
+    { "type": "integer", "minimum": 999, "maximum": 1001 },
+    { "type": "integer", "exclusiveMinimum": 2, "exclusiveMaximum": 5 },
+    { "type": "integer", "minimum": 1.5, "maximum": 4.2 },
+    { "type": "integer", "minimum": -5, "maximum": -2 },
+    { "type": "integer", "minimum": 0 },
+    { "type": "integer", "maximum": -5 },
+  ]
+  for schema in cases {
+    let dfa = @schema.compile(schema)
+    let validator = @moonschema.Schema::new(schema)
+    for n in -30..<=1100 {
+      if n > 120 && n < 90 {
+        continue
+      }
+      if n > 120 && n < 980 {
+        continue
+      }
+      if n > 1020 {
+        continue
+      }
+      let text = n.to_string()
+      let ok = validator.valid(@json.parse(text))
+      if dfa.accepts(text) != ok {
+        fail(
+          "\{schema.stringify()} on \{text}: dfa=\{dfa.accepts(text)} validator=\{ok}",
+        )
+      }
+    }
+    assert_false(dfa.accepts("-0"))
+    assert_false(dfa.accepts("01"))
+    assert_false(dfa.accepts("1.0"))
+  }
+}
+
+///|
+test "numeric bounds accept in-range decimals and reject the rest" {
+  let schema : Json = { "type": "number", "minimum": 1.25, "maximum": 3.25 }
+  let dfa = @schema.compile(schema)
+  let validator = @moonschema.Schema::new(schema)
+  let yes = ["1.25", "1.250", "1.5", "2", "2.5", "3", "3.2", "3.25", "3.250"]
+  for text in yes {
+    if !dfa.accepts(text) || !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+  }
+  let no = [
+    "1.24", "1.249", "1", "3.26", "3.251", "4", "1e1", "1E1", "01.5", "-0",
+  ]
+  for text in no {
+    assert_false(dfa.accepts(text))
+  }
+  for ip in 0..<=4 {
+    for d1 in 0..<10 {
+      let text = "\{ip}.\{d1}"
+      guard json_value(text) is Some(value) else { continue }
+      if dfa.accepts(text) {
+        assert_true(validator.valid(value))
+      } else if validator.valid(value) {
+        fail("missing in-range decimal \{text}")
+      }
+    }
+  }
+  let wide : Json = { "type": "number", "minimum": 0, "maximum": 10 }
+  let wide_dfa = @schema.compile(wide)
+  assert_true(wide_dfa.accepts("1.5"))
+  assert_true(wide_dfa.accepts("0.0"))
+  assert_false(wide_dfa.accepts("1e1"))
+  assert_false(wide_dfa.accepts("10.1"))
+  assert_false(wide_dfa.accepts("-0.1"))
+  let tenth : Json = { "type": "number", "minimum": 0.1, "maximum": 0.3 }
+  let tenth_dfa = @schema.compile(tenth)
+  let tenth_v = @moonschema.Schema::new(tenth)
+  for text in ["0.1", "0.2", "0.30"] {
+    if !tenth_dfa.accepts(text) || !tenth_v.valid(@json.parse(text)) {
+      fail(text)
+    }
+  }
+  assert_false(tenth_dfa.accepts("0.09"))
+  assert_false(tenth_dfa.accepts("0.31"))
+  assert_false(tenth_dfa.accepts("1e-1"))
+  let cross : Json = { "type": "number", "minimum": -2.5, "maximum": 3.2 }
+  let cross_dfa = @schema.compile(cross)
+  let cross_v = @moonschema.Schema::new(cross)
+  let samples = [
+    "-2.5", "-2.50", "-2", "-1.5", "-0.5", "0", "0.0", "1.5", "3", "3.2", "3.20",
+  ]
+  for text in samples {
+    if !cross_dfa.accepts(text) || !cross_v.valid(@json.parse(text)) {
+      fail(text)
+    }
+  }
+  assert_false(cross_dfa.accepts("-2.6"))
+  assert_false(cross_dfa.accepts("3.3"))
+  assert_false(cross_dfa.accepts("-2.5e0"))
+  assert_false(cross_dfa.accepts("-0"))
+}
+
+///|
+test "exclusive numeric bounds and rejected bound forms" {
+  let open = @schema.compile({
+    "type": "integer",
+    "exclusiveMinimum": 2,
+    "exclusiveMaximum": 5,
+  })
+  assert_false(open.accepts("2"))
+  assert_true(open.accepts("3"))
+  assert_true(open.accepts("4"))
+  assert_false(open.accepts("5"))
+  let stricter = @schema.compile({
+    "type": "integer",
+    "minimum": 0,
+    "exclusiveMinimum": 2,
+    "maximum": 10,
+    "exclusiveMaximum": 6,
+  })
+  assert_false(stricter.accepts("2"))
+  assert_true(stricter.accepts("3"))
+  assert_true(stricter.accepts("5"))
+  assert_false(stricter.accepts("6"))
+  let either = @schema.compile({ "type": ["integer", "null"], "minimum": 0 })
+  assert_true(either.accepts("null"))
+  assert_true(either.accepts("0"))
+  assert_false(either.accepts("-1"))
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "integer", "exclusiveMinimum": true })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "number", "exclusiveMaximum": false })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "integer", "minimum": 5, "maximum": 1 })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "integer",
+        "exclusiveMinimum": 1,
+        "exclusiveMaximum": 2,
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile(@json.parse("{\"type\":\"number\",\"minimum\":1e20}"))
+    }),
+  )
+  assert_true(
+    accepts_exactly(
+      { "type": "number", "minimum": -2.5, "maximum": 3.2 },
+      "-1.25",
+    ),
+  )
+}
+
+///|
+test "sampled bounded numbers pass the independent validator" {
+  let schemas : Array[Json] = [
+    { "type": "integer", "minimum": -2, "maximum": 5 },
+    { "type": "number", "minimum": 0, "maximum": 2 },
+    { "type": "number", "exclusiveMinimum": 1.25, "maximum": 3.25 },
+  ]
+  let rand = @random.Rand::chacha8(seed=b"moonmask-numeric-e2e-seed-000000")
+  for schema in schemas {
+    let dfa = @schema.compile(schema)
+    let validator = @moonschema.Schema::new(schema)
+    let mut produced = 0
+    for _ in 0..<80 {
+      guard dfa.sample(rand, max_len=80) is Some(bytes) else { continue }
+      let text = @utf8.decode(bytes)
+      if !validator.valid(@json.parse(text)) {
+        fail("\{schema.stringify()} rejected sample \{text}")
+      }
+      produced += 1
+    }
+    assert_true(produced > 40)
   }
 }
 
