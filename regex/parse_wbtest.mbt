@@ -19,6 +19,7 @@ test "parse builds the expected shapes" {
   assert_true(parse("a{2,}") is Repeat(Set(_), 2, None))
   assert_true(parse("a{2,5}") is Repeat(Set(_), 2, Some(5)))
   assert_true(parse("月") is Concat([Set(_), Set(_), Set(_)]))
+  assert_true(parse("😀") is Concat([Set(_), Set(_), Set(_), Set(_)]))
   assert_true(parse("") is Empty)
 }
 

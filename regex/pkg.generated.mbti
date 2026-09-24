@@ -1,7 +1,12 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "FidollarinLA/moonmask/regex"
 
+import {
+  "moonbitlang/core/random",
+}
+
 // Values
+pub fn compile(String) -> Dfa raise ParseError
 
 // Errors
 pub suberror ParseError {
@@ -11,6 +16,18 @@ pub fn ParseError::to_string(Self) -> String
 pub impl Show for ParseError
 
 // Types and methods
+pub struct Dfa {
+  start : Int
+  // private fields
+}
+pub fn Dfa::accepts(Self, String) -> Bool
+pub fn Dfa::distance(Self, Int) -> Int
+pub fn Dfa::is_accept(Self, Int) -> Bool
+pub fn Dfa::matches(Self, Bytes) -> Bool
+pub fn Dfa::sample(Self, @random.Rand, max_len~ : Int) -> Bytes?
+pub fn Dfa::state_count(Self) -> Int
+pub fn Dfa::step(Self, Int, Byte) -> Int
+pub fn Dfa::walk(Self, Int, Bytes) -> Int
 
 // Type aliases
 
