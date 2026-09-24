@@ -146,3 +146,155 @@ test "unmasked monkey respects the token budget" {
   let out = @mask.monkey_unmasked(v, rand, max_tokens=10)
   assert_true(out.tokens.length() <= 10)
 }
+
+///|
+/// The pre-trie mask: walk every token byte string from `state`.
+fn scan_transitions(
+  dfa : @regex.Dfa,
+  vocab : @vocab.Vocab,
+  state : Int,
+) -> Array[(Int, Int)] {
+  let out : Array[(Int, Int)] = []
+  for id in 0..<vocab.size() {
+    let bytes = vocab.tokens[id]
+    if id == vocab.eos || bytes.length() == 0 {
+      continue
+    }
+    let next = dfa.walk(state, bytes)
+    if next >= 0 {
+      out.push((id, next))
+    }
+  }
+  out
+}
+
+///|
+fn assert_same_mask(dfa : @regex.Dfa, vocab : @vocab.Vocab) -> Unit raise {
+  let guide = @mask.Guide::new(dfa, vocab)
+  for state in 0..<dfa.state_count() {
+    let got = guide.transitions(state)
+    let expect = scan_transitions(dfa, vocab, state)
+    assert_eq(got, expect)
+    let allowed = guide.allowed(state)
+    let want = expect.map(fn(pair) { pair.0 })
+    if dfa.is_accept(state) {
+      want.push(vocab.eos)
+    }
+    assert_eq(allowed, want)
+    for id in 0..<vocab.size() {
+      if vocab.tokens[id].length() == 0 {
+        assert_false(allowed.contains(id) && id != vocab.eos)
+      }
+    }
+  }
+}
+
+///|
+fn vocab_with_shared_prefixes() -> @vocab.Vocab {
+  let tokens : Array[Bytes] = [
+    b"", b"a", b"ab", b"abc", b"ax", b"b", b"ba", b"true", b"tr", b"t", b"",
+  ]
+  @vocab.Vocab::new(tokens, eos=tokens.length() - 1)
+}
+
+///|
+test "prefix tree matches a full scan on a small vocabulary" {
+  let vocab = vocab_with_shared_prefixes()
+  let patterns = [
+    "ab", "a*b", "abc|ax", "(?:ab|a[0-2]{1,2}|cd?|true)", "true|false",
+  ]
+  for pattern in patterns {
+    assert_same_mask(@regex.compile(pattern), vocab)
+  }
+  let dfa = @schema.compile({
+    "type": "object",
+    "properties": {
+      "n": { "type": "integer" },
+      "s": { "type": "string", "maxLength": 2 },
+    },
+    "additionalProperties": false,
+  })
+  assert_same_mask(dfa, tiny_vocab())
+  assert_same_mask(dfa, vocab_with_shared_prefixes())
+}
+
+///|
+fn open_gpt2() -> @tokenizer.Tokenizer {
+  let paths = [
+    "assets/gpt2/tokenizer.json", "../assets/gpt2/tokenizer.json", "../../assets/gpt2/tokenizer.json",
+  ]
+  for path in paths {
+    let opened = try @tokenizer.from_file(path) catch {
+      _ => None
+    } noraise {
+      tok => Some(tok)
+    }
+    match opened {
+      Some(tok) => return tok
+      None => ()
+    }
+  }
+  abort("run ./scripts/fetch-gpt2.sh before the GPT-2 mask test")
+}
+
+///|
+fn remember(states : Array[Int], state : Int) -> Unit {
+  if state >= 0 && !states.contains(state) {
+    states.push(state)
+  }
+}
+
+///|
+fn check_gpt2_states(
+  dfa : @regex.Dfa,
+  vocab : @vocab.Vocab,
+  prefixes : Array[String],
+) -> Unit raise {
+  let guide = @mask.Guide::new(dfa, vocab)
+  let states : Array[Int] = []
+  remember(states, dfa.start)
+  for prefix in prefixes {
+    let mut walked = dfa.start
+    for byte in @utf8.encode(prefix) {
+      walked = dfa.step(walked, byte)
+      remember(states, walked)
+    }
+    remember(states, dfa.walk(dfa.start, @utf8.encode(prefix)))
+  }
+  assert_true(states.length() >= 3)
+  for state in states {
+    let got = guide.transitions(state)
+    let expect = scan_transitions(dfa, vocab, state)
+    assert_eq(got, expect)
+    let allowed = guide.allowed(state)
+    if dfa.is_accept(state) {
+      assert_true(allowed.contains(vocab.eos))
+    } else {
+      assert_false(allowed.contains(vocab.eos))
+    }
+    for id in 0..<vocab.size() {
+      if vocab.tokens[id].length() == 0 {
+        assert_false(got.iter().any(fn(pair) { pair.0 == id }))
+      }
+    }
+  }
+}
+
+///|
+test "prefix tree matches a full scan on several gpt-2 states" {
+  let vocab = @vocab.from_tokenizer(open_gpt2(), eos_token="<|endoftext|>")
+  check_gpt2_states(
+    @schema.compile({
+      "type": "object",
+      "properties": { "a": { "type": "boolean" } },
+      "additionalProperties": false,
+    }),
+    vocab,
+    ["{", "{\"", "{\"a\"", "{\"a\":", "{\"a\":true}"],
+  )
+  check_gpt2_states(
+    @schema.compile({ "enum": ["red", "green", "blue"] }),
+    vocab,
+    ["\"", "\"r", "\"re", "\"red\"", "\"g", "\"b", "\"blue\""],
+  )
+}

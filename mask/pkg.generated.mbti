@@ -20,6 +20,7 @@ pub struct Guide {
   dfa : @regex.Dfa
   vocab : @vocab.Vocab
   cache : Map[Int, Array[(Int, Int)]]
+  // private fields
 }
 pub fn Guide::advance(Self, Int, Int) -> Int?
 pub fn Guide::allowed(Self, Int) -> Array[Int]

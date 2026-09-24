@@ -27,6 +27,9 @@ jobs:
           "C:\Users\runneradmin\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
       - run: moon version --all
       - run: moon update
+      - name: Fetch GPT-2 tokenizer
+        shell: bash
+        run: ./scripts/fetch-gpt2.sh
       - run: moon check --deny-warn
       - run: moon test --deny-warn
       - name: Verify formatting
@@ -49,9 +52,10 @@ jobs:
           curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - run: moon update
+      - name: Fetch GPT-2 tokenizer
+        shell: bash
+        run: ./scripts/fetch-gpt2.sh
       - run: moon test --target native --deny-warn
-      - run: ./scripts/fetch-gpt2.sh
-        if: hashFiles('mask/moon.pkg') != ''
       - name: Monkey typewriter experiment
         if: hashFiles('mask/moon.pkg') != ''
         run: >

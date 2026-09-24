@@ -5,6 +5,7 @@ import {
   "howtomakeaname/tokenizers-moonbit/tokenizer",
   "moonbitstack/moonschema",
   "moonbitlang/x/fs",
+  "moonbitlang/core/bench",
   "moonbitlang/core/env",
   "moonbitlang/core/random",
   "moonbitlang/core/json",

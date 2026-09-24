@@ -2,12 +2,13 @@
 pub struct Guide {
   dfa : @regex.Dfa
   vocab : @vocab.Vocab
+  priv trie : Trie
   cache : Map[Int, Array[(Int, Int)]]
 }
 
 ///|
 pub fn Guide::new(dfa : @regex.Dfa, vocab : @vocab.Vocab) -> Guide {
-  { dfa, vocab, cache: Map::from_array([]), }
+  { dfa, vocab, trie: Trie::build(vocab), cache: Map::from_array([]), }
 }
 
 ///|
@@ -22,21 +23,13 @@ pub fn Guide::is_accept(self : Guide, state : Int) -> Bool {
 
 ///|
 /// Every non-eos token that keeps the output completable, paired with the next state.
+/// The prefix tree prunes shared dead prefixes; token ids stay in scan order, so the
+/// set is the same as walking every token.
 pub fn Guide::transitions(self : Guide, state : Int) -> Array[(Int, Int)] {
   match self.cache.get(state) {
     Some(t) => t
     None => {
-      let t : Array[(Int, Int)] = []
-      for id in 0..<self.vocab.size() {
-        let bytes = self.vocab.tokens[id]
-        if id == self.vocab.eos || bytes.length() == 0 {
-          continue
-        }
-        let next = self.dfa.walk(state, bytes)
-        if next >= 0 {
-          t.push((id, next))
-        }
-      }
+      let t = self.trie.collect(self.dfa, state)
       self.cache[state] = t
       t
     }
