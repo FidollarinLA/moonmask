@@ -25,6 +25,14 @@ test "primitive types" {
 }
 
 ///|
+test "union length bounds apply only to strings" {
+  let either = @schema.compile({ "type": ["string", "null"], "maxLength": 2 })
+  assert_true(either.accepts("null"))
+  assert_true(either.accepts("\"ab\""))
+  assert_false(either.accepts("\"abcd\""))
+}
+
+///|
 test "strings with length bounds" {
   let s = @schema.compile({ "type": "string", "minLength": 1, "maxLength": 3 })
   assert_true(s.accepts("\"ab\""))

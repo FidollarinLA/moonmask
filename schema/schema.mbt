@@ -205,7 +205,14 @@ fn gen(schema : Json) -> String raise SchemaError {
       let parts = []
       for item in items {
         guard item is String(ty) else { raise Invalid("type") }
-        parts.push(gen_typed(fields, ty))
+        let kept : Array[(String, Json)] = []
+        let allow = keys_for(ty)
+        for key, value in fields {
+          if allow.contains(key) {
+            kept.push((key, value))
+          }
+        }
+        parts.push(gen_typed(Map::from_array(kept), ty))
       }
       alt(parts)
     }
@@ -269,6 +276,16 @@ fn repeat_atom(
         atom + "{\{min},\{max}}"
       }
     None => if min == 0 { atom + "*" } else { atom + "{\{min},}" }
+  }
+}
+
+///|
+fn keys_for(ty : String) -> Array[String] {
+  match ty {
+    "string" => ["type", "minLength", "maxLength"]
+    "object" => ["type", "properties", "required", "additionalProperties"]
+    "array" => ["type", "items", "minItems", "maxItems"]
+    _ => ["type"]
   }
 }
 
