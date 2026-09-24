@@ -46,15 +46,15 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 ## 支持的 JSON Schema 子集
 
 - `string`，可带 `minLength` / `maxLength`。内容是 ASCII 可见字符和常见转义 `\" \\ \/ \b \f \n \r \t`。
-- `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。
-- `number`。小数部分最多 15 位，指数最多 2 位。
+- `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。可带 `minimum` / `maximum`。`exclusiveMinimum` / `exclusiveMaximum` 必须是数字，表示开区间；同时写时取更紧的一侧。
+- `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
 - `boolean`、`null`。
 - `enum`、`const`。如果同时写了 `type`，会先按类型过滤候选值。
 - `object`。按 `properties` 的声明顺序输出全部属性。`required` 里的名字必须都已声明。`additionalProperties` 只能是布尔值。
 - `array`，必须有 `items`，可带 `minItems` / `maxItems`。
 - `anyOf`，以及 `type` 写成类型数组。
 - 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
-- 其余关键字，包括 `pattern`、`format`、`minimum`、`oneOf`、`$ref`，直接报错，不会静默忽略。
+- 其余关键字，包括 `pattern`、`format`、`multipleOf`、`oneOf`、`$ref`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
 
 ## 适用范围与限制
 
@@ -63,7 +63,8 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - 字符串内容限 ASCII 和上面列出的转义。
 - object 会输出每一个声明过的属性，不省略可选字段。
 - 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
-- 不支持数值范围、`$ref` 和递归结构。
+- 数值边界本身最多 15 位整数和 15 位小数；超出这个范围会报错，而不是截断。带范围的 `number` 不生成指数。
+- 不支持 `$ref` 和递归结构。
 
 ## 设计
 
