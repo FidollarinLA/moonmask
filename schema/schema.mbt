@@ -659,17 +659,22 @@ fn compile_re(pattern : String) -> @regex.Dfa raise SchemaError {
 
 ///|
 fn assert_overlap(pattern : String) -> String raise SchemaError {
-  let dfa = compile_re(pattern)
-  let mut live = false
-  for i in 0..<dfa.state_count() {
-    if dfa.is_accept(i) {
-      live = true
-    }
-  }
-  if !live {
+  if empty_language(pattern) {
     raise Invalid("$ref")
   }
   pattern
+}
+
+///|
+/// True when the compiled automaton has no accept state.
+fn empty_language(pattern : String) -> Bool raise SchemaError {
+  let dfa = compile_re(pattern)
+  for i in 0..<dfa.state_count() {
+    if dfa.is_accept(i) {
+      return false
+    }
+  }
+  true
 }
 
 ///|
@@ -1087,7 +1092,11 @@ fn gen_string(fields : Map[String, Json]) -> String raise SchemaError {
     None => []
     Some(pattern) => [pattern]
   }
-  string_regex(min, max, patterns)
+  let pattern = string_regex(min, max, patterns)
+  if patterns.length() > 0 && empty_language(pattern) {
+    raise Invalid("empty language")
+  }
+  pattern
 }
 
 ///|

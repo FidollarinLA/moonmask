@@ -564,6 +564,79 @@ test "pattern and length count decoded characters" {
 }
 
 ///|
+test "pattern and length with no overlap are rejected" {
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "string", "pattern": "ab", "maxLength": 1 })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "string",
+        "pattern": "ab",
+        "minLength": 0,
+        "maxLength": 1,
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "string", "pattern": "a{3}", "maxLength": 2 })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "s": { "type": "string", "pattern": "ab", "maxLength": 1 },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "string", "minLength": 4, "maxLength": 2 })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/s",
+        "pattern": "ab",
+        "$defs": { "s": { "type": "string", "maxLength": 1 } },
+      })
+    }),
+  )
+  let nullable : Json = { "type": "string", "pattern": "a*", "maxLength": 0 }
+  expect_json(nullable, "\"\"", true)
+  expect_json(nullable, "\"a\"", false)
+  let overlap : Json = {
+    "type": "string",
+    "pattern": "ab",
+    "minLength": 2,
+    "maxLength": 4,
+  }
+  expect_json(overlap, "\"ab\"", true)
+  expect_json(overlap, "\"a\"", false)
+  let validator = @moonschema.Schema::new(overlap)
+  let dfa = @schema.compile(overlap)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-empty-lang-seed-0000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=24) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
 test "sampled patterned strings pass the independent validator" {
   let schema : Json = { "type": "string", "pattern": "a+" }
   let dfa = @schema.compile(schema)
