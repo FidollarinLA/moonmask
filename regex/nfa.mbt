@@ -71,7 +71,8 @@ fn Nfa::build(self : Nfa, ast : Ast) -> (Int, Int) raise ParseError {
       }
       (entry, exit)
     }
-    JsonChars(pattern, min, max) => self.json_chars(pattern, min, max)
+    JsonChars(pattern, min, max, extra) =>
+      self.json_chars(pattern, min, max, extra)
     Repeat(inner, min, max) => {
       let entry = self.add_state()
       let mut exit = entry

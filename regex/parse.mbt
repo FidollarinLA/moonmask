@@ -22,7 +22,8 @@ priv enum Ast {
   Alt(Array[Ast])
   Repeat(Ast, Int, Int?)
   /// Pattern plus decoded-character bounds. `max` is `None` when unbounded.
-  JsonChars(String, Int, Int?)
+  /// The last string, when present, is a second pattern that must also match.
+  JsonChars(String, Int, Int?, String?)
 }
 
 ///|
@@ -239,6 +240,7 @@ fn Parser::read_int(self : Parser) -> Int raise ParseError {
 
 ///|
 /// `(?@min,max,len:pattern)` where `max` is `-1` when there is no maximum.
+/// `(?@min,max,len,len2:patternpattern2)` requires both patterns.
 fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
   self.pos += 1
   let min = self.read_int()
@@ -252,6 +254,12 @@ fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
   }
   self.pos += 1
   let plen = self.read_int()
+  let plen2 = if self.peek() is Some(',') {
+    self.pos += 1
+    Some(self.read_int())
+  } else {
+    None
+  }
   if !(self.peek() is Some(':')) {
     self.fail("expected :")
   }
@@ -264,12 +272,26 @@ fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
     buf.write_char(self.chars[self.pos])
     self.pos += 1
   }
+  let extra = match plen2 {
+    None => None
+    Some(n) => {
+      if n < 0 || self.pos + n > self.chars.length() {
+        self.fail("pattern length exceeds the group")
+      }
+      let buf2 = StringBuilder()
+      for _ in 0..<n {
+        buf2.write_char(self.chars[self.pos])
+        self.pos += 1
+      }
+      Some(buf2.to_string())
+    }
+  }
   if !(self.peek() is Some(')')) {
     self.fail("missing )")
   }
   self.pos += 1
   let max = if max_n < 0 { None } else { Some(max_n) }
-  JsonChars(buf.to_string(), min, max)
+  JsonChars(buf.to_string(), min, max, extra)
 }
 
 ///|
