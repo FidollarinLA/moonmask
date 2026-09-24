@@ -45,7 +45,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 
 ## 支持的 JSON Schema 子集
 
-- `string`，可带 `minLength` / `maxLength`。长度按 JSON 解码后的码点数计算：`\n` 算 1，一个汉字或 emoji 也算 1，不按源码字节数，也不按字素簇（`e` 加组合音符算 2）。内容是可见 ASCII、常见转义 `\" \\ \/ \b \f \n \r \t`、`\uXXXX`（四位十六进制），以及 U+0080 到 U+10FFFF 的合法 UTF-8。`\uD800\uDC00` 这种代理对算 1 个码点。落单的代理项、不足四位、非十六进制，以及 `\u{...}` 会被拒绝，不会生成。过长编码、截断的 UTF-8 同样拒绝。`pattern` 是不锚定的 ASCII 安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。它可以和长度、转义、`\uXXXX`、原样 UTF-8 同时使用。`.`、锚点、`\s`、pattern 里的 `\u` / `\u{...}` / Unicode 属性，以及其他写不进这个子集的 pattern 会报错，不会被忽略。
+- `string`，可带 `minLength` / `maxLength`。长度按 JSON 解码后的码点数计算：`\n` 算 1，一个汉字或 emoji 也算 1，不按源码字节数，也不按字素簇（`e` 加组合音符算 2）。内容是可见 ASCII、常见转义 `\" \\ \/ \b \f \n \r \t`、`\uXXXX`（四位十六进制），以及 U+0080 到 U+10FFFF 的合法 UTF-8。`\uD800\uDC00` 这种代理对算 1 个码点。落单的代理项、不足四位、非十六进制，以及 `\u{...}` 会被拒绝，不会生成。过长编码、截断的 UTF-8 同样拒绝。`pattern` 是不锚定的 ASCII 安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。它可以和长度、转义、`\uXXXX`、原样 UTF-8 同时使用。`pattern` 和 `minLength` / `maxLength` 没有交集时会报错，不会编成一个什么都不接受的自动机。`minLength` 大于 `maxLength` 同样报错。`.`、锚点、`\s`、pattern 里的 `\u` / `\u{...}` / Unicode 属性，以及其他写不进这个子集的 pattern 会报错，不会被忽略。
 - `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。可带 `minimum` / `maximum`。`exclusiveMinimum` / `exclusiveMaximum` 必须是数字，表示开区间；同时写时取更紧的一侧。
 - `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
 - `boolean`、`null`。
@@ -73,6 +73,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 
 - 推理时每一步都要能拿到 logits，例如进程内推理或本地推理服务。只返回整段文本的云端 API 只能事后校验。
 - 只生成紧凑 JSON，不含空白。
+- 语言为空就报错，不会编成一个不接受任何字符串的自动机。直接写在 schema 上的 `pattern` 与 `minLength` / `maxLength` 没有交集时如此，`minLength` 大于 `maxLength` 时如此，`$ref` 上的约束没有交集时也如此。
 - 字符串接受合法 UTF-8 和 `\uXXXX`。落单代理项和 `\u{...}` 会报错。`pattern` 不能写非 ASCII，也不能写 `\u` 或 Unicode 属性。
 - object 会输出每一个声明过的属性，不省略可选字段。
 - 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
