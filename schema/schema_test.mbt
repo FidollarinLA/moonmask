@@ -1027,21 +1027,141 @@ test "length and pattern beside $ref narrow the referenced string" {
       })
     }),
   )
+  let validator = @moonschema.Schema::new(bounded)
+  let dfa = @schema.compile(bounded)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-text-seed-000000000")
+  let mut produced = 0
+  for _ in 0..<40 {
+    guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
+}
+
+///|
+test "nested ref constraints intersect" {
+  let layered : Json = {
+    "$ref": "#/$defs/outer",
+    "maxLength": 3,
+    "$defs": {
+      "outer": { "$ref": "#/$defs/inner", "minLength": 1 },
+      "inner": { "type": "string" },
+    },
+  }
+  expect_json(layered, "\"a\"", true)
+  expect_json(layered, "\"aaa\"", true)
+  expect_json(layered, "\"\"", false)
+  expect_json(layered, "\"aaaa\"", false)
+  let marked : Json = {
+    "$ref": "#/$defs/outer",
+    "maxLength": 3,
+    "pattern": "b",
+    "$defs": {
+      "outer": { "$ref": "#/$defs/inner", "minLength": 2, "pattern": "a" },
+      "inner": { "type": "string", "pattern": "c", "maxLength": 4 },
+    },
+  }
+  expect_json(marked, "\"abc\"", true)
+  expect_json(marked, "\"cab\"", true)
+  expect_json(marked, "\"ab\"", false)
+  expect_json(marked, "\"abcd\"", false)
+  expect_json(marked, "\"aa\"", false)
+  let colors : Json = {
+    "$ref": "#/$defs/outer",
+    "enum": ["red", "green"],
+    "$defs": {
+      "outer": { "$ref": "#/$defs/inner", "enum": ["red", "blue"] },
+      "inner": { "type": "string" },
+    },
+  }
+  expect_json(colors, "\"red\"", true)
+  expect_json(colors, "\"green\"", false)
+  expect_json(colors, "\"blue\"", false)
+  let typed : Json = {
+    "$ref": "#/$defs/outer",
+    "type": "string",
+    "$defs": {
+      "outer": { "$ref": "#/$defs/inner", "enum": ["ab", 1] },
+      "inner": { "type": ["string", "integer"] },
+    },
+  }
+  expect_json(typed, "\"ab\"", true)
+  expect_json(typed, "1", false)
+  let one : Json = {
+    "$ref": "#/$defs/outer",
+    "maxLength": 1,
+    "$defs": {
+      "outer": { "$ref": "#/$defs/inner", "minLength": 1 },
+      "inner": { "type": "string" },
+    },
+  }
+  expect_json(one, "\"é\"", true)
+  expect_json(one, "\"\\n\"", true)
+  expect_json(one, "\"ab\"", false)
+  expect_json(one, "\"e\u{0301}\"", false)
   assert_true(
     raises(() => {
       @schema.compile({
         "$ref": "#/$defs/outer",
-        "maxLength": 3,
+        "maxLength": 2,
         "$defs": {
-          "outer": { "$ref": "#/$defs/inner", "minLength": 1 },
+          "outer": { "$ref": "#/$defs/inner", "minLength": 4 },
           "inner": { "type": "string" },
         },
       })
     }),
   )
-  let validator = @moonschema.Schema::new(bounded)
-  let dfa = @schema.compile(bounded)
-  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-text-seed-000000000")
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/outer",
+        "type": "integer",
+        "$defs": {
+          "outer": { "$ref": "#/$defs/inner", "type": "string" },
+          "inner": { "type": ["string", "integer"] },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/outer",
+        "minLength": 1,
+        "$defs": {
+          "outer": { "$ref": "#/$defs/inner", "format": "email" },
+          "inner": { "type": "string" },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$ref": "#/$defs/a",
+        "minLength": 1,
+        "$defs": {
+          "a": { "$ref": "#/$defs/b", "maxLength": 2 },
+          "b": { "$ref": "#/$defs/a" },
+        },
+      })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "$dynamicRef": "#/$defs/s",
+        "$defs": { "s": { "type": "string" } },
+      })
+    }),
+  )
+  let validator = @moonschema.Schema::new(layered)
+  let dfa = @schema.compile(layered)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-ref-nest-seed-000000000")
   let mut produced = 0
   for _ in 0..<40 {
     guard dfa.sample(rand, max_len=16) is Some(bytes) else { continue }

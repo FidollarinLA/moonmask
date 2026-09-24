@@ -279,7 +279,8 @@ priv struct RefSiblings {
 
 ///|
 /// `type`, `enum`, `const`, `minLength`, `maxLength`, and `pattern` beside
-/// `$ref` narrow the referenced schema. Any other sibling keyword is rejected.
+/// `$ref` narrow the referenced schema, including when that schema is itself a
+/// reference carrying the same keywords. Any other sibling keyword is rejected.
 /// A sibling that cannot overlap the reference is rejected rather than ignored.
 fn ref_siblings(fields : Map[String, Json]) -> RefSiblings raise SchemaError {
   let mut sib_type : Json? = None
@@ -328,6 +329,34 @@ fn RefSiblings::has_constraint(self : RefSiblings) -> Bool {
 }
 
 ///|
+/// Constraints gathered from every `$ref` along an acyclic chain.
+priv struct ChainLimit {
+  ty : Array[String]?
+  values : Array[Json]?
+  min_length : Json?
+  max_length : Json?
+  patterns : Array[String]
+}
+
+///|
+fn ChainLimit::has_text(self : ChainLimit) -> Bool {
+  self.min_length is Some(_) ||
+  self.max_length is Some(_) ||
+  self.patterns.length() > 0
+}
+
+///|
+fn empty_limit() -> ChainLimit {
+  return {
+    ty: None,
+    values: None,
+    min_length: None,
+    max_length: None,
+    patterns: [],
+  }
+}
+
+///|
 fn apply_ref_siblings(
   body : Json,
   sib : RefSiblings,
@@ -337,82 +366,177 @@ fn apply_ref_siblings(
   if sib.en is Some(_) && sib.co is Some(_) {
     raise Unsupported("enum/const with other constraints")
   }
-  if sib.en is Some(_) || sib.co is Some(_) {
-    ref_enum(body, sib, defs, stack)
-  } else if sib.has_text() {
-    ref_text(body, sib, defs, stack)
-  } else {
-    guard sib.ty is Some(ty) else { raise Invalid("$ref") }
-    ref_type(body, ty, defs, stack)
-  }
+  let (core, chain) = follow_chain(body, defs, stack)
+  apply_limit(core, merge_limit(chain, sib), defs, stack)
 }
 
 ///|
-fn ref_enum(
-  body : Json,
-  sib : RefSiblings,
+fn follow_chain(
+  schema : Json,
   defs : Map[String, Json],
   stack : Array[String],
-) -> String raise SchemaError {
-  let values = match (sib.co, sib.en) {
-    (Some(value), None) => [value]
-    (None, Some(Array(items))) => items
-    (None, Some(_)) => raise Invalid("enum")
-    _ => raise Invalid("$ref")
-  }
-  let types = match sib.ty {
-    None => None
-    Some(ty) => Some(type_names(ty))
-  }
-  let pattern = expand(body, defs, stack)
-  let dfa = compile_re(pattern)
-  let extra = text_dfa(sib)
-  filter_values(values, types, dfa, extra)
-}
-
-///|
-/// Length and pattern beside `$ref` have to be met as well as the reference.
-/// A value that is not a string cannot meet them. No overlap is an error.
-fn ref_text(
-  body : Json,
-  sib : RefSiblings,
-  defs : Map[String, Json],
-  stack : Array[String],
-) -> String raise SchemaError {
-  let mut core = follow_pure(body, defs, stack)
-  if sib.ty is Some(ty) {
-    core = narrowed_core(core, ty)
-  }
-  if core.get("enum") is Some(_) || core.get("const") is Some(_) {
-    let values = match (core.get("const"), core.get("enum")) {
-      (Some(value), None) => [value]
-      (None, Some(Array(items))) => items
-      (Some(_), Some(_)) =>
+) -> (Map[String, Json], ChainLimit) raise SchemaError {
+  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
+  match fields.get("$ref") {
+    None => (fields, empty_limit())
+    Some(target) => {
+      let sib = ref_siblings(fields)
+      if sib.en is Some(_) && sib.co is Some(_) {
         raise Unsupported("enum/const with other constraints")
-      _ => raise Invalid("$ref")
+      }
+      guard target is String(pointer) else { raise Invalid("$ref") }
+      let name = ref_name(pointer)
+      if stack.contains(name) {
+        raise Invalid("$ref cycle")
+      }
+      match defs.get(name) {
+        None => raise Invalid("$ref")
+        Some(body) => {
+          let (core, inner) = follow_chain(body, defs, push_ref(stack, name))
+          (core, merge_limit(inner, sib))
+        }
+      }
     }
+  }
+}
+
+///|
+fn merge_limit(
+  limit : ChainLimit,
+  sib : RefSiblings,
+) -> ChainLimit raise SchemaError {
+  let patterns : Array[String] = []
+  for pattern in limit.patterns {
+    patterns.push(pattern)
+  }
+  match pattern_of(sib.pat) {
+    None => ()
+    Some(pattern) => patterns.push(pattern)
+  }
+  let min_length = tighter(limit.min_length, sib.min_length, true, "minLength")
+  let max_length = tighter(limit.max_length, sib.max_length, false, "maxLength")
+  let _ = paired_bounds(min_length, max_length)
+  return {
+    ty: merge_type(limit.ty, sib.ty),
+    values: intersect_values(limit.values, sib_values(sib)),
+    min_length,
+    max_length,
+    patterns,
+  }
+}
+
+///|
+fn merge_type(
+  have : Array[String]?,
+  extra : Json?,
+) -> Array[String]? raise SchemaError {
+  match extra {
+    None => have
+    Some(value) => {
+      let want = type_names(value)
+      match have {
+        None => Some(want)
+        Some(old) => {
+          let both = intersect_types(old, want)
+          if both.is_empty() {
+            raise Invalid("$ref")
+          }
+          Some(both)
+        }
+      }
+    }
+  }
+}
+
+///|
+fn sib_values(sib : RefSiblings) -> Array[Json]? raise SchemaError {
+  match (sib.co, sib.en) {
+    (None, None) => None
+    (Some(value), None) => Some([value])
+    (None, Some(Array(items))) => Some(items)
+    (None, Some(_)) => raise Invalid("enum")
+    _ => raise Unsupported("enum/const with other constraints")
+  }
+}
+
+///|
+fn core_values(core : Map[String, Json]) -> Array[Json]? raise SchemaError {
+  match (core.get("const"), core.get("enum")) {
+    (None, None) => None
+    (Some(value), None) => Some([value])
+    (None, Some(Array(items))) => Some(items)
+    (Some(_), Some(_)) => raise Unsupported("enum/const with other constraints")
+    (None, Some(_)) => raise Invalid("enum")
+  }
+}
+
+///|
+fn intersect_values(
+  left : Array[Json]?,
+  right : Array[Json]?,
+) -> Array[Json]? raise SchemaError {
+  match left {
+    None => right
+    Some(xs) =>
+      match right {
+        None => Some(xs)
+        Some(ys) => {
+          let out : Array[Json] = []
+          for x in xs {
+            let text = x.stringify()
+            let mut found = false
+            for y in ys {
+              if y.stringify() == text {
+                found = true
+              }
+            }
+            if found {
+              let mut seen = false
+              for item in out {
+                if item.stringify() == text {
+                  seen = true
+                }
+              }
+              if !seen {
+                out.push(x)
+              }
+            }
+          }
+          if out.is_empty() {
+            raise Invalid("$ref")
+          }
+          Some(out)
+        }
+      }
+  }
+}
+
+///|
+/// Length and pattern have to be met as well as the reference. A value that is
+/// not a string cannot meet them. No overlap is an error.
+fn apply_limit(
+  core : Map[String, Json],
+  limit : ChainLimit,
+  defs : Map[String, Json],
+  stack : Array[String],
+) -> String raise SchemaError {
+  let mut core = core
+  if limit.ty is Some(names) {
+    core = narrowed_core(core, type_json(names))
+  }
+  let values = intersect_values(core_values(core), limit.values)
+  if values is Some(values) {
     let types = match core.get("type") {
       None => None
       Some(ty) => Some(type_names(ty))
     }
     let dfa = compile_re(expand_fields(core, defs, stack))
-    let extra = text_dfa(sib)
-    return filter_values(values, types, dfa, extra)
+    return filter_values(values, types, dfa, limit_text_dfa(limit))
   }
-  let names = match core.get("type") {
-    Some(ty) => type_names(ty)
-    None => raise Invalid("$ref")
+  if limit.has_text() {
+    return assert_overlap(merged_limits(core, limit))
   }
-  if !names.contains("string") {
-    raise Invalid("$ref")
-  }
-  let string_core = if names.length() == 1 && names[0] == "string" {
-    core
-  } else {
-    with_type(core, ["string"], type_json(["string"]))
-  }
-  reject_foreign(string_core, ["type", "minLength", "maxLength", "pattern"])
-  assert_overlap(merged_string(string_core, sib))
+  expand_fields(core, defs, stack)
 }
 
 ///|
@@ -442,17 +566,6 @@ fn filter_values(
     raise Invalid("$ref")
   }
   alt(parts)
-}
-
-///|
-fn ref_type(
-  body : Json,
-  sib_type : Json,
-  defs : Map[String, Json],
-  stack : Array[String],
-) -> String raise SchemaError {
-  let core = follow_pure(body, defs, stack)
-  expand_fields(narrowed_core(core, sib_type), defs, stack)
 }
 
 ///|
@@ -507,23 +620,54 @@ fn assert_overlap(pattern : String) -> String raise SchemaError {
 }
 
 ///|
-fn text_dfa(sib : RefSiblings) -> @regex.Dfa? raise SchemaError {
-  if !sib.has_text() {
+fn limit_text_dfa(limit : ChainLimit) -> @regex.Dfa? raise SchemaError {
+  if !limit.has_text() {
     return None
   }
-  let (min, max) = paired_bounds(sib.min_length, sib.max_length)
-  Some(compile_re(string_regex(min, max, None, pattern_of(sib.pat))))
+  let (min, max) = paired_bounds(limit.min_length, limit.max_length)
+  Some(compile_re(string_regex(min, max, limit.patterns)))
 }
 
 ///|
-fn merged_string(
+fn merged_limits(
   core : Map[String, Json],
-  sib : RefSiblings,
+  limit : ChainLimit,
 ) -> String raise SchemaError {
-  let min_j = tighter(core.get("minLength"), sib.min_length, true, "minLength")
-  let max_j = tighter(core.get("maxLength"), sib.max_length, false, "maxLength")
+  let names = match core.get("type") {
+    Some(ty) => type_names(ty)
+    None => raise Invalid("$ref")
+  }
+  if !names.contains("string") {
+    raise Invalid("$ref")
+  }
+  let string_core = if names.length() == 1 && names[0] == "string" {
+    core
+  } else {
+    with_type(core, ["string"], type_json(["string"]))
+  }
+  reject_foreign(string_core, ["type", "minLength", "maxLength", "pattern"])
+  let min_j = tighter(
+    string_core.get("minLength"),
+    limit.min_length,
+    true,
+    "minLength",
+  )
+  let max_j = tighter(
+    string_core.get("maxLength"),
+    limit.max_length,
+    false,
+    "maxLength",
+  )
   let (min, max) = paired_bounds(min_j, max_j)
-  string_regex(min, max, pattern_of(core.get("pattern")), pattern_of(sib.pat))
+  let patterns : Array[String] = []
+  match pattern_of(string_core.get("pattern")) {
+    None => ()
+    Some(pattern) => patterns.push(pattern)
+  }
+  for pattern in limit.patterns {
+    patterns.push(pattern)
+  }
+  string_regex(min, max, patterns)
 }
 
 ///|
@@ -595,34 +739,6 @@ fn tighter(
           }
         }
       }
-  }
-}
-
-///|
-fn follow_pure(
-  schema : Json,
-  defs : Map[String, Json],
-  stack : Array[String],
-) -> Map[String, Json] raise SchemaError {
-  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
-  match fields.get("$ref") {
-    None => fields
-    Some(target) => {
-      for key in fields.keys() {
-        if key != "$ref" && !is_annotation(key) {
-          raise Unsupported("$ref")
-        }
-      }
-      guard target is String(pointer) else { raise Invalid("$ref") }
-      let name = ref_name(pointer)
-      if stack.contains(name) {
-        raise Invalid("$ref cycle")
-      }
-      match defs.get(name) {
-        None => raise Invalid("$ref")
-        Some(body) => follow_pure(body, defs, push_ref(stack, name))
-      }
-    }
   }
 }
 
@@ -893,29 +1009,45 @@ fn gen_string(fields : Map[String, Json]) -> String raise SchemaError {
   if max is Some(bound) && min > bound {
     raise Invalid("minLength > maxLength")
   }
-  string_regex(min, max, pattern_of(fields.get("pattern")), None)
+  let patterns = match pattern_of(fields.get("pattern")) {
+    None => []
+    Some(pattern) => [pattern]
+  }
+  string_regex(min, max, patterns)
 }
 
 ///|
 fn string_regex(
   min : Int,
   max : Int?,
-  first : String?,
-  second : String?,
+  patterns : Array[String],
 ) -> String raise SchemaError {
-  let left = match first {
-    None | Some("") => None
-    Some(pattern) => Some(pattern)
+  let kept : Array[String] = []
+  for pattern in patterns {
+    if pattern != "" {
+      check_user_pattern(pattern)
+      kept.push(pattern)
+    }
   }
-  let right = match second {
-    None | Some("") => None
-    Some(pattern) => Some(pattern)
-  }
-  let body = match (left, right) {
-    (None, None) => repeat_atom(string_char, min, max)
-    (Some(pattern), None) | (None, Some(pattern)) =>
-      one_pattern(min, max, pattern)
-    (Some(pattern), Some(other)) => two_patterns(min, max, pattern, other)
+  let body = if kept.length() == 0 {
+    repeat_atom(string_char, min, max)
+  } else {
+    let max_n = match max {
+      None => -1
+      Some(bound) => bound
+    }
+    let buf = StringBuilder()
+    buf.write_string("(?@\{min},\{max_n}")
+    for pattern in kept {
+      let plen = pattern.to_array().length()
+      buf.write_string(",\{plen}")
+    }
+    buf.write_string(":")
+    for pattern in kept {
+      buf.write_string(pattern)
+    }
+    buf.write_string(")")
+    buf.to_string()
   }
   "\"" + body + "\""
 }
@@ -927,39 +1059,6 @@ fn check_user_pattern(pattern : String) -> Unit raise SchemaError {
   } noraise {
     _ => ()
   }
-}
-
-///|
-fn one_pattern(
-  min : Int,
-  max : Int?,
-  pattern : String,
-) -> String raise SchemaError {
-  check_user_pattern(pattern)
-  let max_n = match max {
-    None => -1
-    Some(bound) => bound
-  }
-  let plen = pattern.to_array().length()
-  "(?@\{min},\{max_n},\{plen}:\{pattern})"
-}
-
-///|
-fn two_patterns(
-  min : Int,
-  max : Int?,
-  pattern : String,
-  other : String,
-) -> String raise SchemaError {
-  check_user_pattern(pattern)
-  check_user_pattern(other)
-  let max_n = match max {
-    None => -1
-    Some(bound) => bound
-  }
-  let n1 = pattern.to_array().length()
-  let n2 = other.to_array().length()
-  "(?@\{min},\{max_n},\{n1},\{n2}:\{pattern}\{other})"
 }
 
 ///|

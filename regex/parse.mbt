@@ -22,8 +22,8 @@ priv enum Ast {
   Alt(Array[Ast])
   Repeat(Ast, Int, Int?)
   /// Pattern plus decoded-character bounds. `max` is `None` when unbounded.
-  /// The last string, when present, is a second pattern that must also match.
-  JsonChars(String, Int, Int?, String?)
+  /// Every extra string is another pattern that must also match.
+  JsonChars(String, Int, Int?, Array[String])
 }
 
 ///|
@@ -239,8 +239,8 @@ fn Parser::read_int(self : Parser) -> Int raise ParseError {
 }
 
 ///|
-/// `(?@min,max,len:pattern)` where `max` is `-1` when there is no maximum.
-/// `(?@min,max,len,len2:patternpattern2)` requires both patterns.
+/// `(?@min,max,len...:patterns)` where `max` is `-1` when there is no maximum.
+/// One length prefix per pattern, so a `)` inside a pattern is not the closer.
 fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
   self.pos += 1
   let min = self.read_int()
@@ -253,45 +253,37 @@ fn Parser::json_chars(self : Parser) -> Ast raise ParseError {
     self.fail("expected ,")
   }
   self.pos += 1
-  let plen = self.read_int()
-  let plen2 = if self.peek() is Some(',') {
+  let lengths = [self.read_int()]
+  while self.peek() is Some(',') {
     self.pos += 1
-    Some(self.read_int())
-  } else {
-    None
+    lengths.push(self.read_int())
   }
   if !(self.peek() is Some(':')) {
     self.fail("expected :")
   }
   self.pos += 1
-  if plen < 0 || self.pos + plen > self.chars.length() {
-    self.fail("pattern length exceeds the group")
-  }
-  let buf = StringBuilder()
-  for _ in 0..<plen {
-    buf.write_char(self.chars[self.pos])
-    self.pos += 1
-  }
-  let extra = match plen2 {
-    None => None
-    Some(n) => {
-      if n < 0 || self.pos + n > self.chars.length() {
-        self.fail("pattern length exceeds the group")
-      }
-      let buf2 = StringBuilder()
-      for _ in 0..<n {
-        buf2.write_char(self.chars[self.pos])
-        self.pos += 1
-      }
-      Some(buf2.to_string())
+  let patterns : Array[String] = []
+  for n in lengths {
+    if n < 0 || self.pos + n > self.chars.length() {
+      self.fail("pattern length exceeds the group")
     }
+    let buf = StringBuilder()
+    for _ in 0..<n {
+      buf.write_char(self.chars[self.pos])
+      self.pos += 1
+    }
+    patterns.push(buf.to_string())
   }
   if !(self.peek() is Some(')')) {
     self.fail("missing )")
   }
   self.pos += 1
+  let extra : Array[String] = []
+  for i in 1..<patterns.length() {
+    extra.push(patterns[i])
+  }
   let max = if max_n < 0 { None } else { Some(max_n) }
-  JsonChars(buf.to_string(), min, max, extra)
+  JsonChars(patterns[0], min, max, extra)
 }
 
 ///|
