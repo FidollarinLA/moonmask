@@ -26,10 +26,10 @@ pub fn string_pattern(pattern : String) -> String raise ParseError {
 }
 
 ///|
-/// One decoded JSON string character: a raw ASCII byte, a short escape, or one
-/// well-formed non-ASCII UTF-8 code point. Overlongs and surrogates are absent.
+/// One decoded JSON string character. `\uXXXX` is a BMP code point; a surrogate
+/// pair is one character. Lone surrogates and `\u{...}` are not alternatives.
 let json_char : String =
-  #|(?:[ !#-\[\]-~]|\\["\\/bfnrt]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC][\x80-\xBF][\x80-\xBF]|\xED[\x80-\x9F][\x80-\xBF]|[\xEE-\xEF][\x80-\xBF][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF][\x80-\xBF]|[\xF1-\xF3][\x80-\xBF][\x80-\xBF][\x80-\xBF]|\xF4[\x80-\x8F][\x80-\xBF][\x80-\xBF])
+  #|(?:[ !#-\[\]-~]|\\["\\/bfnrt]|[\xC2-\xDF][\x80-\xBF]|\xE0[\xA0-\xBF][\x80-\xBF]|[\xE1-\xEC][\x80-\xBF][\x80-\xBF]|\xED[\x80-\x9F][\x80-\xBF]|[\xEE-\xEF][\x80-\xBF][\x80-\xBF]|\xF0[\x90-\xBF][\x80-\xBF][\x80-\xBF]|[\xF1-\xF3][\x80-\xBF][\x80-\xBF][\x80-\xBF]|\xF4[\x80-\x8F][\x80-\xBF][\x80-\xBF]|\\u(?:[0-9a-ce-fA-CE-F][0-9a-fA-F]{3}|[dD][0-7][0-9a-fA-F]{2})|\\u[dD][89aAbB][0-9a-fA-F]{2}\\u[dD][c-fC-F][0-9a-fA-F]{2})
 
 ///|
 pub fn json_unit() -> String {
@@ -124,6 +124,105 @@ fn Nfa::finish_bytes(
   dest : Int,
 ) -> Unit {
   self.moves[from].push((ByteSet::of_range(lo, hi), dest))
+}
+
+///|
+fn hex_digits() -> ByteSet {
+  let set = ByteSet::of_range('0'.to_int(), '9'.to_int())
+  set.add_all(ByteSet::of_range('a'.to_int(), 'f'.to_int()))
+  set.add_all(ByteSet::of_range('A'.to_int(), 'F'.to_int()))
+  set
+}
+
+///|
+fn nibble_digits(n : Int) -> ByteSet {
+  if n < 10 {
+    ByteSet::of_range('0'.to_int() + n, '0'.to_int() + n)
+  } else {
+    let set = ByteSet::of_range('a'.to_int() + n - 10, 'a'.to_int() + n - 10)
+    set.add_byte('A'.to_int() + n - 10)
+    set
+  }
+}
+
+///|
+fn nibbles_set(lo : Int, hi : Int) -> ByteSet {
+  let set = ByteSet::empty()
+  for n in lo..<=hi {
+    set.add_all(nibble_digits(n))
+  }
+  set
+}
+
+///|
+fn pattern_byte(b : Int) -> Bool {
+  b >= 0x20 && b <= 0x7E && b != 0x22 && b != 0x5C
+}
+
+///|
+/// Entry of a run of `n` hex digits that then arrives at `dest`.
+fn Nfa::hex_run(self : Nfa, n : Int, dest : Int) -> Int raise ParseError {
+  let digits = hex_digits()
+  let entry = self.add_state()
+  let mut cur = entry
+  for _ in 1..<n {
+    let nxt = self.add_state()
+    self.moves[cur].push((digits, nxt))
+    cur = nxt
+  }
+  self.moves[cur].push((digits, dest))
+  entry
+}
+
+///|
+/// From a state that has just read `\`, accept `\uXXXX`. A surrogate pair counts
+/// once and lands on `reset_at`. A BMP code point in the pattern alphabet lands on
+/// `ascii_at`. Lone surrogates and `\u{...}` have no edge.
+fn Nfa::link_u(
+  self : Nfa,
+  mid : Int,
+  reset_at : Int,
+  ascii_at : (Int) -> Int,
+) -> Unit raise ParseError {
+  let ustart = self.add_state()
+  self.moves[mid].push((byte_set_of(['u'.to_int()]), ustart))
+  let any3 = self.hex_run(3, reset_at)
+  let any2 = self.hex_run(2, reset_at)
+  let one_hex = self.hex_run(1, reset_at)
+  let not_d = nibbles_set(1, 12)
+  not_d.add_all(nibbles_set(14, 15))
+  self.moves[ustart].push((not_d, any3))
+  let s0 = self.add_state()
+  self.moves[ustart].push((nibble_digits(0), s0))
+  let sd = self.add_state()
+  self.moves[ustart].push((nibble_digits(13), sd))
+  let s00 = self.add_state()
+  self.moves[s0].push((nibble_digits(0), s00))
+  self.moves[s0].push((nibbles_set(1, 15), any2))
+  self.moves[sd].push((nibbles_set(0, 7), any2))
+  let broad = nibbles_set(0, 1)
+  broad.add_all(nibbles_set(8, 15))
+  self.moves[s00].push((broad, one_hex))
+  for hi in 2..<=7 {
+    let st = self.add_state()
+    self.moves[s00].push((nibble_digits(hi), st))
+    for lo in 0..<16 {
+      let byte = hi * 16 + lo
+      let dest = if pattern_byte(byte) { ascii_at(byte) } else { reset_at }
+      self.moves[st].push((nibble_digits(lo), dest))
+    }
+  }
+  let tail = self.add_state()
+  let high_entry = self.hex_run(2, tail)
+  self.moves[sd].push((nibbles_set(8, 11), high_entry))
+  let u2 = self.add_state()
+  self.moves[tail].push((byte_set_of([0x5C]), u2))
+  let dstate = self.add_state()
+  self.moves[u2].push((byte_set_of(['u'.to_int()]), dstate))
+  let after_d = self.add_state()
+  self.moves[dstate].push((nibble_digits(13), after_d))
+  let low_entry = self.hex_run(2, reset_at)
+  self.moves[after_d].push((nibbles_set(12, 15), low_entry))
 }
 
 ///|
@@ -241,6 +340,7 @@ fn Nfa::json_chars(
       self.moves[mid].push(
         (slash, boundary[at(next_i, advance(p, '/'.to_int()))]),
       )
+      self.link_u(mid, dest, b => boundary[at(next_i, advance(p, b))])
     }
   }
   (boundary[at(0, search.start)], exit)
