@@ -216,24 +216,27 @@ fn push_ref(stack : Array[String], name : String) -> Array[String] {
 }
 
 ///|
-/// `#/$defs/<token>`, one JSON Pointer segment. `~0` is `~` and `~1` is `/`.
-fn ref_name(target : String) -> String raise SchemaError {
-  let prefix = "#/$defs/".to_array()
+/// A `$ref` is `#/...` and the segment before the last one is `$defs`.
+/// `~0` is `~` and `~1` is `/`.
+fn pointer_segments(target : String) -> Array[String] raise SchemaError {
   let chars = target.to_array()
-  if chars.length() <= prefix.length() {
+  if chars.length() < 3 || chars[0] != '#' || chars[1] != '/' {
     raise Unsupported("$ref")
   }
-  for i, c in prefix {
-    if chars[i] != c {
-      raise Unsupported("$ref")
-    }
-  }
-  let buf = StringBuilder()
-  let mut i = prefix.length()
-  while i < chars.length() {
-    let c = chars[i]
-    if c == '/' {
-      raise Unsupported("$ref")
+  let segments : Array[String] = []
+  let mut buf = StringBuilder()
+  let mut i = 2
+  while i <= chars.length() {
+    let done = i == chars.length()
+    let c = if done { '/' } else { chars[i] }
+    if done || c == '/' {
+      let name = buf.to_string()
+      if name.length() == 0 {
+        raise Unsupported("$ref")
+      }
+      segments.push(name)
+      buf = StringBuilder()
+      i += 1
     } else if c == '~' {
       if i + 1 >= chars.length() {
         raise Unsupported("$ref")
@@ -249,21 +252,64 @@ fn ref_name(target : String) -> String raise SchemaError {
       i += 1
     }
   }
-  let name = buf.to_string()
-  if name.length() == 0 {
+  if segments.length() < 2 || segments[segments.length() - 2] != "$defs" {
     raise Unsupported("$ref")
   }
-  name
+  segments
+}
+
+///|
+fn escape_pointer(segment : String) -> String {
+  let buf = StringBuilder()
+  for c in segment {
+    match c {
+      '~' => buf.write_string("~0")
+      '/' => buf.write_string("~1")
+      _ => buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn canonical_ref(target : String) -> String raise SchemaError {
+  let buf = StringBuilder()
+  buf.write_char('#')
+  for segment in pointer_segments(target) {
+    buf.write_char('/')
+    buf.write_string(escape_pointer(segment))
+  }
+  buf.to_string()
+}
+
+///|
+fn join_pointer(here : String, segments : Array[String]) -> String {
+  let buf = StringBuilder()
+  buf.write_string(here)
+  for segment in segments {
+    buf.write_char('/')
+    buf.write_string(escape_pointer(segment))
+  }
+  buf.to_string()
+}
+
+///|
+fn lookup_ref(root : Json, target : String) -> Json raise SchemaError {
+  let mut cur = root
+  for segment in pointer_segments(target) {
+    guard cur is Object(fields) else { raise Invalid("$ref") }
+    match fields.get(segment) {
+      None => raise Invalid("$ref")
+      Some(next) => cur = next
+    }
+  }
+  cur
 }
 
 ///|
 fn gen(schema : Json) -> String raise SchemaError {
-  guard schema is Object(fields) else { raise Unsupported("boolean schema") }
-  let defs = read_defs(fields)
-  for name, body in defs {
-    let _ = expand(body, defs, [name])
-  }
-  expand_fields(drop_defs(fields), defs, [])
+  guard schema is Object(_) else { raise Unsupported("boolean schema") }
+  expand(schema, schema, [], "#")
 }
 
 ///|
@@ -360,42 +406,45 @@ fn empty_limit() -> ChainLimit {
 fn apply_ref_siblings(
   body : Json,
   sib : RefSiblings,
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   if sib.en is Some(_) && sib.co is Some(_) {
     raise Unsupported("enum/const with other constraints")
   }
-  let (core, chain) = follow_chain(body, defs, stack)
-  apply_limit(core, merge_limit(chain, sib), defs, stack)
+  let (core, chain, there) = follow_chain(body, root, stack, here)
+  apply_limit(core, merge_limit(chain, sib), root, stack, there)
 }
 
 ///|
 fn follow_chain(
   schema : Json,
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
-) -> (Map[String, Json], ChainLimit) raise SchemaError {
+  here : String,
+) -> (Map[String, Json], ChainLimit, String) raise SchemaError {
   guard schema is Object(fields) else { raise Unsupported("boolean schema") }
   match fields.get("$ref") {
-    None => (fields, empty_limit())
+    None => (fields, empty_limit(), here)
     Some(target) => {
       let sib = ref_siblings(fields)
       if sib.en is Some(_) && sib.co is Some(_) {
         raise Unsupported("enum/const with other constraints")
       }
       guard target is String(pointer) else { raise Invalid("$ref") }
-      let name = ref_name(pointer)
-      if stack.contains(name) {
+      let canon = canonical_ref(pointer)
+      if stack.contains(canon) {
         raise Invalid("$ref cycle")
       }
-      match defs.get(name) {
-        None => raise Invalid("$ref")
-        Some(body) => {
-          let (core, inner) = follow_chain(body, defs, push_ref(stack, name))
-          (core, merge_limit(inner, sib))
-        }
-      }
+      let body = lookup_ref(root, canon)
+      let (core, inner, there) = follow_chain(
+        body,
+        root,
+        push_ref(stack, canon),
+        canon,
+      )
+      (core, merge_limit(inner, sib), there)
     }
   }
 }
@@ -517,8 +566,9 @@ fn intersect_values(
 fn apply_limit(
   core : Map[String, Json],
   limit : ChainLimit,
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   let mut core = core
   if limit.ty is Some(names) {
@@ -530,13 +580,13 @@ fn apply_limit(
       None => None
       Some(ty) => Some(type_names(ty))
     }
-    let dfa = compile_re(expand_fields(core, defs, stack))
+    let dfa = compile_re(expand_fields(core, root, stack, here))
     return filter_values(values, types, dfa, limit_text_dfa(limit))
   }
   if limit.has_text() {
     return assert_overlap(merged_limits(core, limit))
   }
-  expand_fields(core, defs, stack)
+  expand_fields(core, root, stack, here)
 }
 
 ///|
@@ -857,19 +907,42 @@ fn type_json(types : Array[String]) -> Json raise SchemaError {
 ///|
 fn expand(
   schema : Json,
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   guard schema is Object(fields) else { raise Unsupported("boolean schema") }
-  expand_fields(fields, defs, stack)
+  expand_fields(fields, root, stack, here)
+}
+
+///|
+fn bind_defs(
+  fields : Map[String, Json],
+  root : Json,
+  stack : Array[String],
+  here : String,
+) -> Map[String, Json] raise SchemaError {
+  match fields.get("$defs") {
+    None => fields
+    Some(_) => {
+      let defined = read_defs(fields)
+      for name, body in defined {
+        let ptr = join_pointer(here, ["$defs", name])
+        let _ = expand(body, root, push_ref(stack, ptr), ptr)
+      }
+      drop_defs(fields)
+    }
+  }
 }
 
 ///|
 fn expand_fields(
   fields : Map[String, Json],
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
+  let fields = bind_defs(fields, root, stack, here)
   for key in fields.keys() {
     if !is_known(key) {
       raise Unsupported(key)
@@ -878,20 +951,16 @@ fn expand_fields(
   if fields.get("$ref") is Some(target) {
     let sib = ref_siblings(fields)
     guard target is String(pointer) else { raise Invalid("$ref") }
-    let name = ref_name(pointer)
-    if stack.contains(name) {
+    let canon = canonical_ref(pointer)
+    if stack.contains(canon) {
       raise Invalid("$ref cycle")
     }
-    match defs.get(name) {
-      None => raise Invalid("$ref")
-      Some(body) => {
-        let next = push_ref(stack, name)
-        if !sib.has_constraint() {
-          return expand(body, defs, next)
-        }
-        return apply_ref_siblings(body, sib, defs, next)
-      }
+    let body = lookup_ref(root, canon)
+    let next = push_ref(stack, canon)
+    if !sib.has_constraint() {
+      return expand(body, root, next, canon)
     }
+    return apply_ref_siblings(body, sib, root, next, canon)
   }
   if fields.get("const") is Some(_) || fields.get("enum") is Some(_) {
     return gen_enum(fields)
@@ -900,8 +969,10 @@ fn expand_fields(
     reject_foreign(fields, ["anyOf"])
     guard options is Array(items) else { raise Invalid("anyOf") }
     let parts = []
-    for item in items {
-      parts.push(expand(item, defs, stack))
+    for i, item in items {
+      parts.push(
+        expand(item, root, stack, join_pointer(here, ["anyOf", "\{i}"])),
+      )
     }
     return alt(parts)
   }
@@ -918,11 +989,11 @@ fn expand_fields(
             kept.push((key, value))
           }
         }
-        parts.push(gen_typed(Map::from_array(kept), ty, defs, stack))
+        parts.push(gen_typed(Map::from_array(kept), ty, root, stack, here))
       }
       alt(parts)
     }
-    Some(String(ty)) => gen_typed(fields, ty, defs, stack)
+    Some(String(ty)) => gen_typed(fields, ty, root, stack, here)
     Some(_) => raise Invalid("type")
   }
 }
@@ -1065,8 +1136,9 @@ fn check_user_pattern(pattern : String) -> Unit raise SchemaError {
 fn gen_typed(
   fields : Map[String, Json],
   ty : String,
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   match ty {
     "string" => gen_string(fields)
@@ -1094,8 +1166,8 @@ fn gen_typed(
       reject_foreign(fields, ["type"])
       "null"
     }
-    "object" => gen_object(fields, defs, stack)
-    "array" => gen_array(fields, defs, stack)
+    "object" => gen_object(fields, root, stack, here)
+    "array" => gen_array(fields, root, stack, here)
     _ => raise Unsupported(ty)
   }
 }
@@ -1103,8 +1175,9 @@ fn gen_typed(
 ///|
 fn gen_object(
   fields : Map[String, Json],
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   reject_foreign(fields, [
     "type", "properties", "required", "additionalProperties",
@@ -1135,7 +1208,9 @@ fn gen_object(
   if props is Some(Object(props)) {
     for key, child in props {
       pieces.push(
-        escape(key.to_json().stringify()) + ":" + expand(child, defs, stack),
+        escape(key.to_json().stringify()) +
+        ":" +
+        expand(child, root, stack, join_pointer(here, ["properties", key])),
       )
     }
   }
@@ -1157,14 +1232,15 @@ fn gen_object(
 ///|
 fn gen_array(
   fields : Map[String, Json],
-  defs : Map[String, Json],
+  root : Json,
   stack : Array[String],
+  here : String,
 ) -> String raise SchemaError {
   reject_foreign(fields, ["type", "items", "minItems", "maxItems"])
   guard fields.get("items") is Some(items) else {
     raise Unsupported("array without items")
   }
-  let item = expand(items, defs, stack)
+  let item = expand(items, root, stack, join_pointer(here, ["items"]))
   let min = bound_of(fields, "minItems").unwrap_or(0)
   let max = bound_of(fields, "maxItems")
   if max is Some(max) && min > max {
