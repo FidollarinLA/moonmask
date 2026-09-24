@@ -40,7 +40,7 @@ fn resolve_expr(
   stack : Array[String],
 ) -> Expr raise GrammarError {
   match expr {
-    Lit(_) => expr
+    Lit(_) | Class(_) => expr
     Ref(name) => resolve_ref(rules, name, stack)
     Alt(branches) => {
       let resolved : Array[Expr] = []
@@ -66,6 +66,7 @@ fn emit(expr : Expr) -> String raise GrammarError {
   match expr {
     Ref(_) => raise GrammarError(pos=0, msg="unresolved rule")
     Lit(bytes) => emit_lit(bytes)
+    Class(bits) => emit_class(bits)
     Cat(items) => {
       let buf = StringBuilder()
       for item in items {
@@ -152,6 +153,22 @@ fn emit_lit(bytes : Bytes) -> String {
 }
 
 ///|
+fn emit_class(bits : FixedArray[Bool]) -> String {
+  let buf = StringBuilder()
+  let mut first = true
+  for b in 0..<256 {
+    if bits[b] {
+      if !first {
+        buf.write_string("|")
+      }
+      first = false
+      buf.write_string(emit_lit(Bytes::make(1, b.to_byte())))
+    }
+  }
+  buf.to_string()
+}
+
+///|
 fn hex_digit(n : Int) -> Char {
   if n < 10 {
     (48 + n).unsafe_to_char()
@@ -203,6 +220,12 @@ fn ends(expr : Expr, input : Bytes, at : Int) -> Array[Int] {
     Lit(lit) =>
       if has_prefix(input, at, lit) {
         [at + lit.length()]
+      } else {
+        []
+      }
+    Class(bits) =>
+      if at < input.length() && bits[input[at].to_int()] {
+        [at + 1]
       } else {
         []
       }

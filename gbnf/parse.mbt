@@ -17,6 +17,8 @@ pub extend GrammarError with Show::{output, to_string}
 ///|
 priv enum Expr {
   Lit(Bytes)
+  /// Bytes that match. Negation is already applied, so this is the accepted set.
+  Class(FixedArray[Bool])
   Alt(Array[Expr])
   Cat(Array[Expr])
   Repeat(Expr, Int, Int?)
@@ -186,7 +188,7 @@ fn Parser::seq(self : Parser) -> Expr raise GrammarError {
 ///|
 fn Parser::starts_atom(self : Parser) -> Bool {
   match self.peek() {
-    Some('"' | '(') => true
+    Some('"' | '(' | '[' | '\\') => true
     Some(c) => is_name_start(c)
     None => false
   }
@@ -286,9 +288,118 @@ fn Parser::atom(self : Parser) -> Expr raise GrammarError {
       self.pos += 1
       inner
     }
-    Some('[') => self.fail("character classes are not supported")
-    Some(c) if is_name_start(c) => Ref(self.ident())
+    Some('[') => self.class_expr()
+    Some('\\') => self.bare_escape()
+    Some(c) if is_name_start(c) => {
+      let name = self.ident()
+      if self.peek() is Some('(') {
+        self.fail("parameterized rules are not supported")
+      }
+      Ref(name)
+    }
     _ => self.fail("expected an expression")
+  }
+}
+
+///|
+fn Parser::bare_escape(self : Parser) -> Expr raise GrammarError {
+  let start = self.pos
+  self.pos += 1
+  match self.peek() {
+    Some('p' | 'P') => self.fail("Unicode properties are not supported")
+    _ => raise GrammarError(pos=start, msg="unsupported escape")
+  }
+}
+
+///|
+/// A single-byte class. `[^...]` is every other byte from 0 to 255.
+fn Parser::class_expr(self : Parser) -> Expr raise GrammarError {
+  self.pos += 1
+  let negated = self.peek() is Some('^')
+  if negated {
+    self.pos += 1
+  }
+  let bits = FixedArray::make(256, false)
+  let mut any = false
+  let mut closed = false
+  while !closed {
+    match self.peek() {
+      None => self.fail("unclosed character class")
+      Some(']') =>
+        if !any {
+          self.fail("empty character class")
+        } else {
+          self.pos += 1
+          closed = true
+        }
+      _ => {
+        let lo = self.class_byte()
+        let hi = if self.peek() is Some('-') &&
+          !(self.chars.get(self.pos + 1) is Some(']')) {
+          self.pos += 1
+          self.class_byte()
+        } else {
+          lo
+        }
+        if lo > hi {
+          self.fail("reversed range in character class")
+        }
+        for b in lo..<=hi {
+          bits[b] = true
+        }
+        any = true
+      }
+    }
+  }
+  if negated {
+    for b in 0..<256 {
+      bits[b] = !bits[b]
+    }
+  }
+  Class(bits)
+}
+
+///|
+fn Parser::class_byte(self : Parser) -> Int raise GrammarError {
+  match self.peek() {
+    None => self.fail("unclosed character class")
+    Some('\\') => self.class_escape()
+    Some(c) => {
+      let n = c.to_int()
+      if n >= 128 {
+        self.fail("character classes are single-byte")
+      }
+      self.pos += 1
+      n
+    }
+  }
+}
+
+///|
+fn Parser::class_escape(self : Parser) -> Int raise GrammarError {
+  let start = self.pos
+  self.pos += 1
+  match self.peek() {
+    None => self.fail("trailing backslash in character class")
+    Some(c) => {
+      self.pos += 1
+      match c {
+        ']' | '\\' | '-' => c.to_int()
+        'n' => '\n'.to_int()
+        'r' => '\r'.to_int()
+        't' => '\t'.to_int()
+        'p' | 'P' =>
+          raise GrammarError(
+            pos=start,
+            msg="Unicode properties are not supported",
+          )
+        _ =>
+          raise GrammarError(
+            pos=start,
+            msg="unsupported character class escape",
+          )
+      }
+    }
   }
 }
 
