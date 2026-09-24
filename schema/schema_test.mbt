@@ -964,6 +964,14 @@ test "length and pattern beside $ref narrow the referenced string" {
   expect_json(one, "\"😀\"", true)
   expect_json(one, "\"ab\"", false)
   expect_json(one, "\"e\u{0301}\"", false)
+  let mixed : Json = {
+    "$ref": "#/$defs/v",
+    "maxLength": 2,
+    "$defs": { "v": { "type": ["string", "integer"] } },
+  }
+  expect_json(mixed, "\"ab\"", true)
+  expect_json(mixed, "\"abc\"", false)
+  assert_false(@schema.compile(mixed).accepts("1"))
   assert_true(
     raises(() => {
       @schema.compile({
