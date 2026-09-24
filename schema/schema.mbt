@@ -21,11 +21,12 @@ let string_char : String =
   #|(?:[ !#-\[\]-~]|\\["\\/bfnrt])
 
 ///|
-let integer_re : String = "-?(?:0|[1-9][0-9]*)"
+/// Up to 15 digits, so every accepted integer survives `json.parse` as an exact number.
+let integer_re : String = "-?(?:0|[1-9][0-9]{0,14})"
 
 ///|
 let fraction_exponent_re : String =
-  #|(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?
+  #|(?:\.[0-9]{1,15})?(?:[eE][+-]?[0-9]{1,2})?
 
 ///|
 pub fn to_regex(schema : Json) -> String raise SchemaError {

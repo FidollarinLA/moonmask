@@ -15,6 +15,8 @@ test "primitive types" {
   assert_true(integer.accepts("0"))
   assert_false(integer.accepts("012"))
   assert_false(integer.accepts("1.5"))
+  assert_true(integer.accepts("999999999999999"))
+  assert_false(integer.accepts("1000000000000000"))
   let num = @schema.compile({ "type": "number" })
   assert_true(num.accepts("1.5e-3"))
   assert_false(num.accepts("1."))
