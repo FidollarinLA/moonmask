@@ -1,1 +1,14 @@
+import {
+  "FidollarinLA/moonmask/schema",
+  "FidollarinLA/moonmask/vocab",
+  "FidollarinLA/moonmask/mask",
+  "howtomakeaname/tokenizers-moonbit/tokenizer",
+  "moonbitstack/moonschema",
+  "moonbitlang/x/fs",
+  "moonbitlang/core/env",
+  "moonbitlang/core/random",
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
+}
+
 pkgtype(kind: "executable")

@@ -1,0 +1,25 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "FidollarinLA/moonmask/schema"
+
+import {
+  "FidollarinLA/moonmask/regex",
+}
+
+// Values
+pub fn compile(Json) -> @regex.Dfa raise SchemaError
+
+pub fn to_regex(Json) -> String raise SchemaError
+
+// Errors
+pub suberror SchemaError {
+  Unsupported(String)
+  Invalid(String)
+}
+pub fn SchemaError::to_string(Self) -> String
+pub impl Show for SchemaError
+
+// Types and methods
+
+// Type aliases
+
+// Traits

@@ -1,0 +1,33 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "FidollarinLA/moonmask/vocab"
+
+import {
+  "howtomakeaname/tokenizers-moonbit/tokenizer",
+}
+
+// Values
+pub fn from_tokenizer(@tokenizer.Tokenizer, eos_token~ : String) -> Vocab raise VocabError
+
+pub fn gpt2_byte_to_char(Byte) -> Char
+
+pub fn gpt2_token_bytes(String) -> Bytes?
+
+// Errors
+pub suberror VocabError {
+  NotByteLevel(id~ : Int, token~ : String)
+  MissingEos(String)
+}
+pub fn VocabError::to_string(Self) -> String
+pub impl Show for VocabError
+
+// Types and methods
+pub struct Vocab {
+  tokens : Array[Bytes]
+  eos : Int
+}
+pub fn Vocab::new(Array[Bytes], eos~ : Int) -> Self
+pub fn Vocab::size(Self) -> Int
+
+// Type aliases
+
+// Traits
