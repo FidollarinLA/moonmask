@@ -72,6 +72,7 @@ fn is_known(key : String) -> Bool {
     | "maxItems"
     | "minLength"
     | "maxLength"
+    | "pattern"
     | "enum"
     | "const"
     | "anyOf"
@@ -292,7 +293,7 @@ fn numeric_keys() -> Array[String] {
 ///|
 fn keys_for(ty : String) -> Array[String] {
   match ty {
-    "string" => ["type", "minLength", "maxLength"]
+    "string" => ["type", "minLength", "maxLength", "pattern"]
     "integer" | "number" => numeric_keys()
     "object" => ["type", "properties", "required", "additionalProperties"]
     "array" => ["type", "items", "minItems", "maxItems"]
@@ -301,17 +302,36 @@ fn keys_for(ty : String) -> Array[String] {
 }
 
 ///|
+fn gen_string(fields : Map[String, Json]) -> String raise SchemaError {
+  reject_foreign(fields, ["type", "minLength", "maxLength", "pattern"])
+  let min = bound_of(fields, "minLength").unwrap_or(0)
+  let max = bound_of(fields, "maxLength")
+  let body = match fields.get("pattern") {
+    None => repeat_atom(string_char, min, max)
+    Some(String("")) => repeat_atom(string_char, min, max)
+    Some(String(pattern)) => {
+      if min != 0 || max is Some(_) {
+        raise Unsupported("pattern with length")
+      }
+      let wrapped = try @regex.string_pattern(pattern) catch {
+        @regex.ParseError(_) => raise Unsupported("pattern")
+      } noraise {
+        wrapped => wrapped
+      }
+      "(?:" + string_char + ")*" + wrapped + "(?:" + string_char + ")*"
+    }
+    Some(_) => raise Invalid("pattern")
+  }
+  "\"" + body + "\""
+}
+
+///|
 fn gen_typed(
   fields : Map[String, Json],
   ty : String,
 ) -> String raise SchemaError {
   match ty {
-    "string" => {
-      reject_foreign(fields, ["type", "minLength", "maxLength"])
-      let min = bound_of(fields, "minLength").unwrap_or(0)
-      let max = bound_of(fields, "maxLength")
-      "\"" + repeat_atom(string_char, min, max) + "\""
-    }
+    "string" => gen_string(fields)
     "integer" => {
       reject_foreign(fields, numeric_keys())
       let (low, high) = read_ends(fields)

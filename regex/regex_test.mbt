@@ -122,6 +122,16 @@ test "distance counts bytes to the nearest accepting state" {
 }
 
 ///|
+test "string patterns keep only raw JSON bytes" {
+  assert_eq(@regex.string_pattern("a+"), "(?:a+)")
+  assert_eq(@regex.string_pattern("[0-9]{2}"), "(?:[0-9]{2})")
+  assert_true(raises(() => @regex.string_pattern(".")))
+  assert_true(raises(() => @regex.string_pattern("\\s")))
+  assert_true(raises(() => @regex.string_pattern("\\n")))
+  assert_true(raises(() => @regex.string_pattern("[^a]")))
+}
+
+///|
 test "sampling only yields accepted strings" {
   let d = @regex.compile("(?:ab|c)+d?")
   let rand = @random.Rand::chacha8(seed=b"moonmask-regex-sample-seed-00000")

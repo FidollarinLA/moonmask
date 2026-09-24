@@ -8,6 +8,8 @@ import {
 // Values
 pub fn compile(String) -> Dfa raise ParseError
 
+pub fn string_pattern(String) -> String raise ParseError
+
 // Errors
 pub suberror ParseError {
   ParseError(pos~ : Int, msg~ : String)

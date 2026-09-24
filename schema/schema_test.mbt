@@ -102,7 +102,7 @@ test "unsupported keywords are rejected, never ignored" {
     raises(() => @schema.compile({ "type": "integer", "multipleOf": 2 })),
   )
   assert_true(
-    raises(() => @schema.compile({ "type": "string", "pattern": "a+" })),
+    raises(() => @schema.compile({ "type": "string", "pattern": "(?=a)" })),
   )
   assert_true(
     raises(() => @schema.compile({ "type": "string", "format": "email" })),
@@ -391,6 +391,75 @@ test "sampled bounded numbers pass the independent validator" {
     }
     assert_true(produced > 40)
   }
+}
+
+///|
+fn json_string(content : String) -> String {
+  "\"" + content + "\""
+}
+
+///|
+test "string patterns agree with the validator" {
+  let patterns = ["a+", "[0-9]{2}", "a*", "(?:ab|c)", "z"]
+  let contents = [
+    "", "a", "b", "aa", "ab", "ba", "bb", "12", "1", "x12", "c", "zab", "az",
+  ]
+  for pattern in patterns {
+    let schema : Json = { "type": "string", "pattern": pattern }
+    let dfa = @schema.compile(schema)
+    let validator = @moonschema.Schema::new(schema)
+    for content in contents {
+      let text = json_string(content)
+      let value = @json.parse(text)
+      let ok = validator.valid(value)
+      if dfa.accepts(text) != ok {
+        fail(
+          "pattern \{pattern} on \{text}: dfa=\{dfa.accepts(text)} validator=\{ok}",
+        )
+      }
+    }
+    let escaped = "\"\\na\""
+    let escaped_ok = validator.valid(@json.parse(escaped))
+    if dfa.accepts(escaped) != escaped_ok {
+      fail("pattern \{pattern} on escaped newline")
+    }
+  }
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "." })),
+  )
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "\\s" })),
+  )
+  assert_true(
+    raises(() => @schema.compile({ "type": "string", "pattern": "^a" })),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "string", "pattern": "a", "maxLength": 4 })
+    }),
+  )
+  let either = @schema.compile({ "type": ["string", "null"], "pattern": "a+" })
+  assert_true(either.accepts("null"))
+  assert_true(either.accepts("\"ba\""))
+  assert_false(either.accepts("\"b\""))
+}
+
+///|
+test "sampled patterned strings pass the independent validator" {
+  let schema : Json = { "type": "string", "pattern": "a+" }
+  let dfa = @schema.compile(schema)
+  let validator = @moonschema.Schema::new(schema)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-pattern-e2e-seed-000000")
+  let mut produced = 0
+  for _ in 0..<200 {
+    guard dfa.sample(rand, max_len=80) is Some(bytes) else { continue }
+    let text = @utf8.decode(bytes)
+    if !validator.valid(@json.parse(text)) {
+      fail(text)
+    }
+    produced += 1
+  }
+  assert_true(produced > 10)
 }
 
 ///|
