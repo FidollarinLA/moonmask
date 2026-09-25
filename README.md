@@ -50,7 +50,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
 - `boolean`、`null`。
 - `enum`、`const`。如果同时写了 `type`，会先按类型过滤候选值。
-- `object`。按 `properties` 的声明顺序输出全部属性。`required` 里的名字必须都已声明。`additionalProperties` 只能是布尔值。
+- `object`。按 `properties` 的声明顺序输出全部属性。`required` 里的名字必须都已声明。没写 `additionalProperties`，或者写成 `false`，都表示不能多出别的字段。`true` 和一份 schema 会报错，不会被当成 `false`。
 - `array`，必须有 `items`，可带 `minItems` / `maxItems`。
 - `anyOf`，以及 `type` 写成类型数组。
 - 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
@@ -75,7 +75,7 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 - 只生成紧凑 JSON，不含空白。
 - 语言为空就报错，不会编成一个不接受任何字符串的自动机。直接写在 schema 上的 `pattern` 与 `minLength` / `maxLength` 没有交集时如此，`minLength` 大于 `maxLength` 时如此，`$ref` 上的约束没有交集时也如此。
 - 字符串接受合法 UTF-8 和 `\uXXXX`。落单代理项和 `\u{...}` 会报错。`pattern` 不能写非 ASCII，也不能写 `\u` 或 Unicode 属性。
-- object 会输出每一个声明过的属性，不省略可选字段。
+- object 会输出每一个声明过的属性，不省略可选字段。`additionalProperties: true` 和 schema 形式会报错。
 - 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
 - 数值边界本身最多 15 位整数和 15 位小数；超出这个范围会报错，而不是截断。带范围的 `number` 不生成指数。
 - `$ref` 不能成环，也不能指向另一份文档。递归 schema 和 `$dynamicRef` 不支持。`$defs` 可以写在当前 schema 对象上。`$ref` 必须是无环 JSON Pointer，而且要落在某个 `$defs` 条目上。`$ref` 旁边除了 `type`、`enum`、`const`、`minLength`、`maxLength`、`pattern`，别的约束不会和引用一起生效。这些关键字可以沿一串无环引用逐层收窄。

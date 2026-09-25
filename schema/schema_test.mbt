@@ -122,6 +122,30 @@ test "unsupported keywords are rejected, never ignored" {
       @schema.compile({ "type": "string", "minLength": 3, "maxLength": 1 })
     }),
   )
+  assert_true(
+    raises(() => {
+      @schema.compile({ "type": "object", "additionalProperties": true })
+    }),
+  )
+  assert_true(
+    raises(() => {
+      @schema.compile({
+        "type": "object",
+        "additionalProperties": { "type": "integer" },
+      })
+    }),
+  )
+}
+
+///|
+test "additionalProperties false keeps a closed object" {
+  let closed = @schema.compile({
+    "type": "object",
+    "properties": { "a": { "type": "integer" } },
+    "additionalProperties": false,
+  })
+  assert_true(closed.accepts("{\"a\":1}"))
+  assert_false(closed.accepts("{\"a\":1,\"b\":2}"))
 }
 
 ///|
