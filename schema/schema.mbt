@@ -1195,7 +1195,7 @@ fn gen_object(
     "type", "properties", "required", "additionalProperties",
   ])
   match fields.get("additionalProperties") {
-    None | Some(True | False) => ()
+    None | Some(False) => ()
     Some(_) => raise Unsupported("additionalProperties")
   }
   let props = match fields.get("properties") {
