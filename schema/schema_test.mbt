@@ -60,7 +60,7 @@ test "enum and const" {
 }
 
 ///|
-test "objects emit every declared property in order" {
+test "objects keep declaration order and may omit optional properties" {
   let o = @schema.compile({
     "type": "object",
     "properties": {
@@ -71,11 +71,49 @@ test "objects emit every declared property in order" {
     "additionalProperties": false,
   })
   assert_true(o.accepts("{\"name\":\"ab\",\"ok\":true}"))
+  assert_true(o.accepts("{\"name\":\"ab\"}"))
   assert_false(o.accepts("{\"ok\":true,\"name\":\"ab\"}"))
-  assert_false(o.accepts("{\"name\":\"ab\"}"))
+  assert_false(o.accepts("{\"ok\":true}"))
+  assert_false(o.accepts("{}"))
   assert_true(
     @schema.compile({ "type": "object", "properties": {} }).accepts("{}"),
   )
+}
+
+///|
+test "optional properties never leave a stray comma" {
+  let o = @schema.compile({
+    "type": "object",
+    "properties": {
+      "a": { "const": 1 },
+      "b": { "const": 2 },
+      "c": { "const": 3 },
+    },
+    "required": ["b"],
+  })
+  for
+    doc in [
+      "{\"b\":2}", "{\"a\":1,\"b\":2}", "{\"b\":2,\"c\":3}", "{\"a\":1,\"b\":2,\"c\":3}",
+    ] {
+    assert_true(o.accepts(doc))
+  }
+  for
+    doc in [
+      "{}", "{\"a\":1}", "{\"c\":3}", "{\"a\":1,\"c\":3}", "{,\"b\":2}", "{\"b\":2,}",
+      "{\"a\":1,,\"b\":2}", "{\"b\":2,\"a\":1}",
+    ] {
+    assert_false(o.accepts(doc))
+  }
+  let all_optional = @schema.compile({
+    "type": "object",
+    "properties": { "a": { "const": 1 }, "b": { "const": 2 } },
+  })
+  for doc in ["{}", "{\"a\":1}", "{\"b\":2}", "{\"a\":1,\"b\":2}"] {
+    assert_true(all_optional.accepts(doc))
+  }
+  for doc in ["{,}", "{\"a\":1,}", "{,\"b\":2}", "{\"b\":2,\"a\":1}"] {
+    assert_false(all_optional.accepts(doc))
+  }
 }
 
 ///|
@@ -183,7 +221,43 @@ fn e2e_schemas() -> Array[Json] {
         },
       ],
     },
+    {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "nick": { "type": "string", "maxLength": 4 },
+        "meta": {
+          "type": "object",
+          "properties": { "a": { "type": "boolean" }, "b": { "type": "null" } },
+          "required": ["b"],
+        },
+        "done": { "type": "boolean" },
+      },
+      "required": ["id", "done"],
+    },
   ]
+}
+
+///|
+test "sampling reaches documents with and without optional properties" {
+  let schema : Json = e2e_schemas()[2]
+  let dfa = @schema.compile(schema)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-optional-props-seed-000")
+  let mut with_nick = 0
+  let mut without_nick = 0
+  for _ in 0..<200 {
+    guard dfa.sample(rand, max_len=400) is Some(bytes) else { continue }
+    guard @json.parse(@utf8.decode(bytes)) is Object(doc) else {
+      fail("not an object")
+    }
+    assert_true(doc.contains("id") && doc.contains("done"))
+    if doc.contains("nick") {
+      with_nick += 1
+    } else {
+      without_nick += 1
+    }
+  }
+  assert_true(with_nick > 0 && without_nick > 0)
 }
 
 ///|
