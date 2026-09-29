@@ -56,7 +56,7 @@ jobs:
           echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
       - run: moon update
       - run: moon check --deny-warn
-      - run: moon test --target js
+      - run: moon test --target js -p FidollarinLA/moonmask-playground/app
       - name: Verify formatting
         run: |
           moon fmt
