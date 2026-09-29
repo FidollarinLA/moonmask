@@ -1,0 +1,22 @@
+import {
+  "moonbit-community/rabbita",
+  "moonbit-community/rabbita/html",
+  "moonbit-community/rabbita/svg",
+  "moonbit-community/rabbita/sub",
+  "moonbit-community/rabbita/http",
+  "FidollarinLA/moonmask/regex",
+  "FidollarinLA/moonmask/schema",
+  "FidollarinLA/moonmask/gbnf",
+  "FidollarinLA/moonmask/mask",
+  "FidollarinLA/moonmask/vocab",
+  "howtomakeaname/tokenizers-moonbit/tokenizer",
+  "moonbitstack/moonschema",
+  "moonbitlang/core/random",
+  "moonbitlang/core/json",
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/string",
+}
+
+supported_targets = "js"
+
+pkgtype(kind: "executable")

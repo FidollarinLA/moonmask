@@ -43,6 +43,26 @@ jobs:
           moon info
           git diff --exit-code
 
+  playground:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: playground
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - run: moon update
+      - run: moon check --deny-warn
+      - run: moon test --target js
+      - name: Verify formatting
+        run: |
+          moon fmt
+          git diff --exit-code
+      - run: ./build.sh
+
   native-demo:
     runs-on: ubuntu-latest
     steps:

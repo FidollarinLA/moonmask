@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Object properties outside `required` may be omitted; declaration order is kept and no stray comma is produced.
+- `mask::monkey_step` picks a single token, so callers can drive decoding one step at a time; `monkey` is built on it and samples exactly as before.
+- Browser playground (`playground/`, MoonBit + rabbita): constraint editor, token-by-token decoding with and without the mask, token-mask view, DFA neighbourhood graph and the monkey experiment, deployed to GitHub Pages.
 
 ## 0.1.0
 

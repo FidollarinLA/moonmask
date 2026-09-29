@@ -1,0 +1,45 @@
+# moonmask playground
+
+A single-page app that runs moonmask in the browser. It is written in MoonBit
+with [rabbita](https://github.com/moonbit-community/rabbita) and compiled to
+JavaScript; there is no hand-written JS apart from one `performance.now()` call.
+
+Live: <https://fidollarinla.github.io/moonmask/>
+
+![playground](../docs/img/playground.png)
+
+## Panels
+
+1. **Constraint**: JSON Schema, regex or GBNF, with presets. Recompiles as you
+   type and shows the DFA size, compile time and, for schemas, the generated regex.
+2. **Decoding**: a sampler picks tokens one at a time. With the mask on it can only
+   pick legal tokens; with the mask off it draws from the whole vocabulary and
+   usually breaks the output on the first token.
+3. **Token mask**: how many tokens are legal in the current state. Click one to
+   play the LLM yourself.
+4. **Automaton**: the last two moves (edges labelled with the emitted token), the
+   current state, and two layers of reachable states with byte-class edges.
+5. **Monkey typewriter**: 30 masked and 30 unmasked random samples, all checked by
+   the same validator (moonschema for schemas, the DFA otherwise).
+
+The default vocabulary is a 164-token toy set. "GPT-2" downloads the real
+50,257-token `tokenizer.json` from Hugging Face (pinned revision) and parses it
+with tokenizers-moonbit in the browser.
+
+## Build
+
+```bash
+cd playground
+./build.sh                 # moon build --target js --release, then copies to dist/
+python3 -m http.server -d dist 8000
+```
+
+`moon.work` points at the parent directory, so the playground always builds
+against the moonmask sources next to it rather than a published version.
+
+## Credits
+
+Token chips follow the look of [tiktokenizer](https://github.com/dqbd/tiktokenizer);
+the automaton view is inspired by the FSM diagrams in
+[Outlines](https://github.com/dottxt-ai/outlines). Both were re-implemented from
+scratch in MoonBit; no code was copied.
