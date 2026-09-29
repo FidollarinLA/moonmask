@@ -1202,6 +1202,7 @@ fn gen_object(
     None | Some(Object(_)) as found => found
     Some(_) => raise Invalid("properties")
   }
+  let required : Map[String, Unit] = Map::from_array([])
   if fields.get("required") is Some(Array(names)) {
     for name in names {
       guard name is String(key) else { raise Invalid("required") }
@@ -1212,33 +1213,52 @@ fn gen_object(
       if !present {
         raise Invalid("required property is not declared")
       }
+      required[key] = ()
     }
   } else if fields.get("required") is Some(_) {
     raise Invalid("required")
   }
-  let pieces = []
+  let members : Array[(String, Bool)] = []
   if props is Some(Object(props)) {
     for key, child in props {
-      pieces.push(
-        escape(key.to_json().stringify()) +
-        ":" +
-        expand(child, root, stack, join_pointer(here, ["properties", key])),
+      members.push(
+        (
+          escape(key.to_json().stringify()) +
+          ":" +
+          expand(child, root, stack, join_pointer(here, ["properties", key])),
+          required.contains(key),
+        ),
       )
     }
   }
-  if pieces.is_empty() {
-    return "\\{\\}"
+  "\\{" + object_members(members) + "\\}"
+}
+
+///|
+/// Members in declaration order, where optional ones may be left out. `after`
+/// is the tail once some member has been written, so every member it adds
+/// starts with a comma; `first` picks the first member that is written.
+fn object_members(members : Array[(String, Bool)]) -> String {
+  let n = members.length()
+  let after = Array::make(n + 1, "")
+  for i = n - 1; i >= 0; i = i - 1 {
+    let (piece, required) = members[i]
+    after[i] = (if required { "," + piece } else { "(," + piece + ")?" }) +
+      after[i + 1]
   }
-  let buf = StringBuilder()
-  buf.write_string("\\{")
-  for i, piece in pieces {
-    if i > 0 {
-      buf.write_char(',')
+  let mut first = ""
+  for i = n - 1; i >= 0; i = i - 1 {
+    let (piece, required) = members[i]
+    let with_this = piece + after[i + 1]
+    first = if required {
+      with_this
+    } else if first == "" {
+      "(" + with_this + ")?"
+    } else {
+      "(" + with_this + "|" + first + ")"
     }
-    buf.write_string(piece)
   }
-  buf.write_string("\\}")
-  buf.to_string()
+  first
 }
 
 ///|

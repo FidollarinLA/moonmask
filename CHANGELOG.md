@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Object properties outside `required` may be omitted; declaration order is kept and no stray comma is produced.
+
 ## 0.1.0
 
 - Byte-level regex engine: parser, Thompson NFA, subset-construction DFA with dead-state pruning and distances.
