@@ -15,36 +15,54 @@ pub fn monkey(g : Guide, rand : @random.Rand, max_tokens~ : Int) -> Sampled {
   let hard_cap = max_tokens * 4 + 64
   let mut state = g.start()
   while tokens.length() < hard_cap {
-    let trans = g.transitions(state)
-    let accept = g.is_accept(state)
-    let over_budget = tokens.length() >= max_tokens
-    if over_budget && accept {
-      tokens.push(g.vocab.eos)
-      return { tokens, text: Bytes::from_array(text), finished: true, }
+    guard monkey_step(g, rand, state, step=tokens.length(), max_tokens~)
+      is Some(id) else {
+      break
     }
-    let candidates = if over_budget {
-      let here = g.dfa.distance(state)
-      trans.filter(p => g.dfa.distance(p.1) < here)
-    } else {
-      trans
-    }
-    let n = candidates.length() + (if accept && !over_budget { 1 } else { 0 })
-    if n == 0 {
-      return { tokens, text: Bytes::from_array(text), finished: false, }
-    }
-    let k = rand.int(limit=n)
-    if k == candidates.length() {
-      tokens.push(g.vocab.eos)
-      return { tokens, text: Bytes::from_array(text), finished: true, }
-    }
-    let (id, next) = candidates[k]
     tokens.push(id)
+    guard g.advance(state, id) is Some(next) else {
+      return { tokens, text: Bytes::from_array(text), finished: true, }
+    }
     for b in g.vocab.tokens[id] {
       text.push(b)
     }
     state = next
   }
   { tokens, text: Bytes::from_array(text), finished: false, }
+}
+
+///|
+/// The token `monkey` picks at `state` after `step` tokens. The eos id means the
+/// output is complete. `None` means no allowed token moves toward acceptance.
+pub fn monkey_step(
+  g : Guide,
+  rand : @random.Rand,
+  state : Int,
+  step~ : Int,
+  max_tokens~ : Int,
+) -> Int? {
+  let trans = g.transitions(state)
+  let accept = g.is_accept(state)
+  let over_budget = step >= max_tokens
+  if over_budget && accept {
+    return Some(g.vocab.eos)
+  }
+  let candidates = if over_budget {
+    let here = g.dfa.distance(state)
+    trans.filter(p => g.dfa.distance(p.1) < here)
+  } else {
+    trans
+  }
+  let n = candidates.length() + (if accept && !over_budget { 1 } else { 0 })
+  if n == 0 {
+    return None
+  }
+  let k = rand.int(limit=n)
+  if k == candidates.length() {
+    Some(g.vocab.eos)
+  } else {
+    Some(candidates[k].0)
+  }
 }
 
 ///|

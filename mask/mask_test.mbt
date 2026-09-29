@@ -140,6 +140,50 @@ test "over budget the sampler heads straight for an accepting state" {
 }
 
 ///|
+test "stepping by hand reproduces monkey" {
+  let v = tiny_vocab()
+  let dfa = @regex.compile("(?:ab|cd)+")
+  let g = @mask.Guide::new(dfa, v)
+  for budget in [0, 2, 8] {
+    let whole = @mask.monkey(
+      g,
+      @random.Rand::chacha8(seed=b"moonmask-step-equivalence-000000"),
+      max_tokens=budget,
+    )
+    let rand = @random.Rand::chacha8(seed=b"moonmask-step-equivalence-000000")
+    let tokens : Array[Int] = []
+    let mut state = g.start()
+    while true {
+      guard @mask.monkey_step(
+          g,
+          rand,
+          state,
+          step=tokens.length(),
+          max_tokens=budget,
+        )
+        is Some(id) else {
+        break
+      }
+      tokens.push(id)
+      match g.advance(state, id) {
+        Some(next) => state = next
+        None => break
+      }
+    }
+    assert_eq(tokens, whole.tokens)
+    assert_eq(tokens[tokens.length() - 1], v.eos)
+  }
+}
+
+///|
+test "monkey_step stops when nothing can make progress" {
+  let v = @vocab.Vocab::new([b"a", b""], eos=1)
+  let g = @mask.Guide::new(@regex.compile("b"), v)
+  let rand = @random.Rand::chacha8(seed=b"moonmask-step-stuck-seed-0000000")
+  assert_eq(@mask.monkey_step(g, rand, g.start(), step=0, max_tokens=4), None)
+}
+
+///|
 test "unmasked monkey respects the token budget" {
   let v = tiny_vocab()
   let rand = @random.Rand::chacha8(seed=b"moonmask-unmasked-seed-000000000")

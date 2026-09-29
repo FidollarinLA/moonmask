@@ -11,6 +11,8 @@ import {
 // Values
 pub fn monkey(Guide, @random.Rand, max_tokens~ : Int) -> Sampled
 
+pub fn monkey_step(Guide, @random.Rand, Int, step~ : Int, max_tokens~ : Int) -> Int?
+
 pub fn monkey_unmasked(@vocab.Vocab, @random.Rand, max_tokens~ : Int) -> Sampled
 
 // Errors
