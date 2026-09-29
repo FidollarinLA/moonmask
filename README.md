@@ -1,89 +1,184 @@
-# moonmask
+<div align="center">
 
-MoonBit 原生的大模型结构化输出约束引擎：把 JSON Schema 子集编译成按字节工作的自动机，在每一步采样前算出还能接上的 token。
+# ◐ moonmask
 
-English: a constrained decoder for LLMs. It compiles a JSON Schema subset to a byte-level automaton and masks tokens that cannot lead to a valid document.
+**MoonBit 原生的大模型结构化输出约束引擎**
 
-## 为什么需要
+把 JSON Schema / 正则 / GBNF 编译成字节级 DFA，在每一步采样前算出“还能接上”的 token，<br>
+让模型的输出**从构造上**就是合法的，而不是生成完再校验、失败再重试。
 
-常见做法是等模型把整段文本生成完，再做 JSON 校验，失败就重试。约束解码把检查提前到每一个 token：只保留“接上去之后仍可能得到合法结果”的 token，其余屏蔽掉。输出是否合法由确定性算法保证，不依赖模型自己改正。
+[![CI](https://github.com/FidollarinLA/moonmask/actions/workflows/ci.yml/badge.svg)](https://github.com/FidollarinLA/moonmask/actions/workflows/ci.yml)
+[![Playground](https://img.shields.io/badge/playground-在线体验-8b7cff)](https://fidollarinla.github.io/moonmask/)
+[![MoonBit](https://img.shields.io/badge/written%20in-MoonBit-4fd1c5)](https://www.moonbitlang.com)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+[在线 Playground](https://fidollarinla.github.io/moonmask/) · [快速开始](#快速开始) · [工作原理](#工作原理) · [实验结果](#实验结果) · [文档](#文档)
+
+<a href="https://fidollarinla.github.io/moonmask/"><img src="https://raw.githubusercontent.com/FidollarinLA/moonmask/main/docs/img/playground.png" alt="moonmask playground" width="920"></a>
+
+<sub>上图是浏览器里的 Playground：左边写约束，右边看解码器一个 token 一个 token 地生成，下方是当前状态的掩码、自动机和随机采样实验。整个页面由 MoonBit 编译成 JavaScript。</sub>
+
+</div>
+
+---
+
+English: a constrained decoder for LLMs, written in MoonBit. It compiles JSON Schema, regex or GBNF to a byte-level DFA and masks every token that cannot lead to a valid output. [Try it in the browser](https://fidollarinla.github.io/moonmask/).
+
+## 一眼看懂
+
+| | 不加约束 | 用 moonmask |
+| --- | --- | --- |
+| 做法 | 让模型自由生成，结束后做 JSON 校验，不合法就重试 | 每一步只允许“接上之后仍可能合法”的 token，其余 logit 置为 −∞ |
+| 合法率 | 取决于模型；随机采样时 **0 / 100** | 由算法保证；随机采样时 **100 / 100** |
+| 成本 | 重试浪费 token 和时间 | 每个 DFA 状态的掩码算一次后缓存 |
+| 适用 | 任何 API | 能拿到每一步 logits 的推理（进程内或本地推理服务） |
+
+一句话：**moonmask 负责告诉采样器“这一步哪些 token 能选”，模型只在合法的范围内做选择。**
+
+## 工作原理
+
+```mermaid
+flowchart LR
+    subgraph C["① 约束"]
+        S["JSON Schema"]
+        R["Regex"]
+        G["GBNF"]
+    end
+    S -- "schema::to_regex" --> RE["一条字节级正则"]
+    R --> RE
+    RE --> AST["语法树"]
+    G -- "规则展开" --> AST
+    AST -- "Thompson 构造" --> NFA["NFA"]
+    NFA -- "子集构造 + 剪枝 + 距离" --> DFA[("字节 DFA")]
+
+    subgraph V["② 词表"]
+        TJ["tokenizer.json"] -- "tokenizers-moonbit" --> VO["Vocab<br/>token → 字节串"]
+        VO --> TR["字节前缀树"]
+    end
+
+    DFA --> GD{{"Guide"}}
+    TR --> GD
+    GD -- "allowed(state)" --> MK["③ token 掩码"]
+    MK --> SP["④ 采样器 / LLM"]
+    SP -- "advance(state, token)" --> GD
+```
+
+1. **约束 → DFA。** 三种约束都先变成同一种语法树，再经 Thompson NFA、子集构造得到按字节转移的 DFA。到不了接受状态的状态被剪掉，所以“走到死状态”在任何时候都能立刻发现；每个状态还记下离接受状态最少还差几个字节。
+2. **词表 → 前缀树。** 用 [tokenizers-moonbit](https://mooncakes.io/docs/howtomakeaname/tokenizers-moonbit) 读取 GPT-2 的 `tokenizer.json`，把 50,257 个 token 还原成字节串并建成前缀树。
+3. **DFA × 前缀树 → 掩码。** 从当前状态出发沿前缀树走，相同前缀只走一次，走不通就剪掉整棵子树。结果按状态缓存。
+4. **解码循环。** 采样器只在掩码内选 token，然后用 `advance` 推进状态，直到在接受状态选出 eos。
+
+每一步发生的事情：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as LLM
+    participant G as Guide (moonmask)
+    participant S as 采样器
+    loop 直到输出 eos
+        M->>S: 这一步的 logits（50,257 维）
+        G->>S: allowed(state)：当前合法的 token
+        S->>S: 其余 token 置 −∞，再采样
+        S->>G: advance(state, token)
+        G-->>G: state ← 下一状态
+    end
+    Note over G,S: eos 只在接受状态放行，所以结束时输出一定完整且合法
+```
+
+下图是 Playground 里的自动机视图。解码器刚输出了 `"}` 和 `top_k` 两个 token（虚线轨迹），停在状态 413；右边是接下来能走的状态和对应的字节类，`d` 是离合法结尾还差的字节数：
+
+<p align="center"><img src="https://raw.githubusercontent.com/FidollarinLA/moonmask/main/docs/img/automaton.png" alt="DFA neighbourhood" width="860"></p>
+
+## 实验结果
+
+**猴子打字机**：不用任何模型，每一步从词表里均匀随机选 token。加掩码的一组只能在合法 token 里选；对照组直接在全部 50,257 个 token 里选。两组输出都交给独立的校验器 [moonschema](https://mooncakes.io/docs/moonbitstack/moonschema) 判定。固定种子 `moonmask-monkey-typewriter-00042`，每个 schema 各采样 100 次，GPT-2 词表：
+
+| schema | 加掩码 | 不加掩码 | 平均 token 数 | DFA 状态数 |
+| --- | --- | --- | --- | --- |
+| [`user.json`](examples/schemas/user.json) | `██████████` **100/100** | `··········` 0/100 | 36.79 | 500 |
+| [`order.json`](examples/schemas/order.json) | `██████████` **100/100** | `··········` 0/100 | 68.29 | 1,401 |
+| [`tool_call.json`](examples/schemas/tool_call.json) | `██████████` **100/100** | `··········` 0/100 | 34.70 | 1,016 |
+
+随机选 token 是最差的“模型”：它完全不懂 JSON。即便如此，加上掩码后 300 次全部合法。真实模型本来就倾向于合法输出，掩码只是把它偶尔的错误堵死。
+
+复现（完整运行约 2 秒）：
+
+```bash
+./scripts/fetch-gpt2.sh     # 按固定版本下载 GPT-2 tokenizer.json 并校验 SHA-256
+moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
+  examples/schemas/user.json examples/schemas/order.json examples/schemas/tool_call.json
+```
 
 ## 快速开始
+
+moonmask 还没有发布到 mooncakes。可以克隆仓库，在自己的项目里用 `moon.work` 引用源码：
+
+```bash
+git clone https://github.com/FidollarinLA/moonmask.git
+./moonmask/scripts/fetch-gpt2.sh
+```
+
+在推理循环里接入：
 
 ```moonbit
 let tok = @tokenizer.from_file("assets/gpt2/tokenizer.json")
 let vocab = @vocab.from_tokenizer(tok, eos_token="<|endoftext|>")
 let guide = @mask.Guide::new(@schema.compile(schema), vocab)
 let mut state = guide.start()
-// Each decoding step: keep only guide.allowed(state), set every other logit to -inf,
-// sample `token`, then:
+// 每一步：只保留 guide.allowed(state)，其余 logit 置为 -inf，采样得到 token，然后：
 match guide.advance(state, token) {
   Some(next) => state = next
-  None => () // eos: the output is complete and valid
+  None => () // eos：输出已经完整且合法
 }
 ```
 
-词表文件不在仓库里。先运行 `./scripts/fetch-gpt2.sh`，它会按固定版本下载 GPT-2 的 `tokenizer.json` 并校验 SHA-256。
+正则和 GBNF 换一个编译入口即可：`@regex.compile("20[0-9]{2}-[01][0-9]")`、`@gbnf.compile(grammar)`，得到的都是同一种 `Dfa`。
 
-## 猴子打字机实验
+## 支持什么
 
-固定随机种子 `moonmask-monkey-typewriter-00042`，每个 schema 采样 100 次。加掩码的采样必须通过独立校验器 `moonbitstack/moonschema`；不加掩码的对照使用同一词表均匀抽 token。
+| 约束 | 支持 | 详细规格 |
+| --- | --- | --- |
+| **JSON Schema** | `string`（长度、`pattern`、UTF-8、转义）、`integer` / `number`（范围）、`boolean`、`null`、`enum`、`const`、`object`（`required` 之外的属性可省略）、`array`、`anyOf`、`$defs` / `$ref` | [docs/schema-subset.md](docs/schema-subset.md) |
+| **Regex** | 字面量、字符类、分组、选择、`* + ? {n,m}`，按字节匹配 | [regex/](regex) |
+| **GBNF** | 多条规则互相引用、字符类、量词、注释；不支持递归 | [docs/gbnf.md](docs/gbnf.md) |
+| **词表** | GPT-2 字节级 BPE（`tokenizer.json`） | [vocab/](vocab) |
 
-```bash
-./scripts/fetch-gpt2.sh
-moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
-  examples/schemas/user.json examples/schemas/order.json examples/schemas/tool_call.json
+写不进子集的关键字**直接报错**，不会被静默忽略，所以自动机的含义和你写的约束始终一致。
+
+## 项目结构
+
+```text
+moonmask/
+├── regex/        正则解析 → Thompson NFA → 子集构造 DFA（剪枝、距离、采样）
+├── schema/       JSON Schema 子集 → 字节级正则
+├── gbnf/         GBNF 文法 → 同一种 DFA
+├── vocab/        GPT-2 tokenizer.json → token 字节串（基于 tokenizers-moonbit）
+├── mask/         Guide：前缀树 + 每状态掩码缓存；monkey / monkey_step 采样器
+├── cmd/main/     猴子打字机实验 CLI（native 后端）
+├── playground/   浏览器 Playground（MoonBit + rabbita，独立模块，不进发布包）
+├── examples/     实验用的三个 schema
+├── docs/         规格细则、设计说明、截图
+└── scripts/      fetch-gpt2.sh：下载并校验 GPT-2 词表
 ```
 
-在开发机上一次完整运行大约 2 秒。程序会先打印在 GPT-2 词表上、对第一个 schema 的起始状态用前缀树算掩码的耗时。下面这一次是 4.041 微秒（词表 50257，`user.json` 起始状态，2 个 token 能接上；这个状态大部分 token 在第一个字节就走不通）。这只是记录，不是性能门槛，结果是：
+## Playground
 
-| schema | masked valid | unmasked valid | avg tokens (masked) | DFA states |
-| --- | --- | --- | --- | --- |
-| examples/schemas/user.json | 100/100 | 0/100 | 36.79 | 500 |
-| examples/schemas/order.json | 100/100 | 0/100 | 68.29 | 1401 |
-| examples/schemas/tool_call.json | 100/100 | 0/100 | 34.7 | 1016 |
+[fidollarinla.github.io/moonmask](https://fidollarinla.github.io/moonmask/) 上的页面是 [`playground/`](playground) 编译出来的，用 [rabbita](https://github.com/moonbit-community/rabbita) 写成，除了一行 `performance.now()` 以外没有手写 JavaScript。可以：
 
-## 支持的 JSON Schema 子集
+- 在 JSON Schema / 正则 / GBNF 之间切换，边改边重新编译，看 DFA 状态数和 schema 生成的正则；
+- 播放或单步解码，对比加掩码和不加掩码：不加掩码时通常第一个 token 就掉进死状态；
+- 看当前状态有多少 token 合法，点击某个 token 自己充当模型；
+- 看自动机的局部结构和刚走过的轨迹；
+- 一键跑 30 + 30 次随机采样实验；
+- 把玩具词表换成真实的 GPT-2 词表（浏览器里下载并解析 50,257 个 token）。
 
-- `string`，可带 `minLength` / `maxLength`。长度按 JSON 解码后的码点数计算：`\n` 算 1，一个汉字或 emoji 也算 1，不按源码字节数，也不按字素簇（`e` 加组合音符算 2）。内容是可见 ASCII、常见转义 `\" \\ \/ \b \f \n \r \t`、`\uXXXX`（四位十六进制），以及 U+0080 到 U+10FFFF 的合法 UTF-8。`\uD800\uDC00` 这种代理对算 1 个码点。落单的代理项、不足四位、非十六进制，以及 `\u{...}` 会被拒绝，不会生成。过长编码、截断的 UTF-8 同样拒绝。`pattern` 是不锚定的 ASCII 安全子集：字面量、分组、选择、量词，以及只含原始 JSON 字符串字节的字符类（可见 ASCII，不含 `"` 和 `\`）。它可以和长度、转义、`\uXXXX`、原样 UTF-8 同时使用。`pattern` 和 `minLength` / `maxLength` 没有交集时会报错，不会编成一个什么都不接受的自动机。`minLength` 大于 `maxLength` 同样报错。`.`、锚点、`\s`、pattern 里的 `\u` / `\u{...}` / Unicode 属性，以及其他写不进这个子集的 pattern 会报错，不会被忽略。
-- `integer`。为了让结果能被 JSON 解析器精确读入，位数最多 15 位，不含前导零。可带 `minimum` / `maximum`。`exclusiveMinimum` / `exclusiveMaximum` 必须是数字，表示开区间；同时写时取更紧的一侧。
-- `number`。小数部分最多 15 位，指数最多 2 位。带数值范围时不再生成科学计数法，只生成落在区间内的整数，以及最多 15 位小数。
-- `boolean`、`null`。
-- `enum`、`const`。如果同时写了 `type`，会先按类型过滤候选值。
-- `object`。属性按 `properties` 的声明顺序输出。`required` 里的属性一定出现，其余属性可以省略，省略后不会留下多余的逗号。`required` 里的名字必须都已声明。没写 `additionalProperties`，或者写成 `false`，都表示不能多出别的字段。`true` 和一份 schema 会报错，不会被当成 `false`。
-- `array`，必须有 `items`，可带 `minItems` / `maxItems`。
-- `anyOf`，以及 `type` 写成类型数组。
-- 注解键 `title`、`description`、`$schema`、`$id`、`$comment`、`examples`、`default` 会被忽略。
-- 根 schema 上的 `$defs`。`$ref` 只能是 `#/$defs/名字`（名字按 JSON Pointer 转义，`~1` 表示 `/`），并在编译时展开。允许一串没有环的引用。`$ref` 旁边可以再写 `type`、`enum`、`const`、`minLength`、`maxLength`、`pattern`。这些关键字和被引用 schema 一起生效；没有交集就报错，不会生成空语言。被引用的 schema 自己如果也在 `$ref` 旁边写了同样这些关键字，多层一起取交集。长度仍按解码后的码点数，`pattern` 仍是不锚定的 ASCII 安全子集，写不进这个子集的 pattern 会报错。`minLength`、`maxLength`、`pattern` 只保留满足它们的字符串。被引用 schema 是字符串和其他类型的并集时，只留下这个字符串部分；如果引用根本给不出这样的字符串，就报错。别的关键字写在 `$ref` 旁边仍然报错。环、`$dynamicRef`、文档外的 URL、`#/definitions/`、以及没有落在某个 `$defs` 条目上的指针，都会报错。`$defs` 可以写在当前这个 schema 对象上，不限于文档根；`$ref` 用无环的 JSON Pointer 指向已经出现的 `$defs` 条目，例如 `#/$defs/名字` 或 `#/properties/a/$defs/名字`。
-- 其余关键字，包括 `format`、`multipleOf`、`oneOf`，直接报错，不会静默忽略。draft-04 那种布尔值 `exclusiveMinimum` / `exclusiveMaximum` 同样报错。
+## 文档
 
-## GBNF 子集
-
-一条文法可以有多条规则，用 `::=` 分开。**第一条规则是入口。** 规则之间可以互相引用，编译时展开进现有的字节 DFA。成环会报错，包括间接引用，所以不支持递归规则。
-
-支持双引号字面量（转义只有 `\\`、`\"`、`\n`、`\r`、`\t`）、选择 `|`、分组 `(...)`，以及量词 `*`、`+`、`?`、`{n}`、`{n,m}`、`{n,}`。`#` 到行尾是注释。
-
-字符类只接受单字节：`[abc]`、`[a-z]`、`[^abc]`、`[^a-z]`。`[^...]` 是 0 到 255 里没被列进去的那些字节。类里面 `\]`、`\\`、`\-` 是字面量；`-` 放在类的开头或结尾、或者不能构成区间时，也是字面量。倒过来的区间会报错。类里还可以写 `\n`、`\r`、`\t`。
-
-递归规则、名字后面紧跟 `(` 的带参数规则、以及 `\p{...}` / `\P{...}` 这类 Unicode 属性，都会报错，不会被忽略。词法优先级也不支持。
-
-固定文法经 DFA 采样得到的字符串，必须被同一文法的简单解释器接受。解释器和 DFA 用的是同一棵已展开的语法树，采样只覆盖自动机能在长度上限内生成的串。
-
-## 适用范围与限制
-
-- 推理时每一步都要能拿到 logits，例如进程内推理或本地推理服务。只返回整段文本的云端 API 只能事后校验。
-- 只生成紧凑 JSON，不含空白。
-- 语言为空就报错，不会编成一个不接受任何字符串的自动机。直接写在 schema 上的 `pattern` 与 `minLength` / `maxLength` 没有交集时如此，`minLength` 大于 `maxLength` 时如此，`$ref` 上的约束没有交集时也如此。
-- 字符串接受合法 UTF-8 和 `\uXXXX`。落单代理项和 `\u{...}` 会报错。`pattern` 不能写非 ASCII，也不能写 `\u` 或 Unicode 属性。
-- object 的属性顺序固定为声明顺序，不会调换。`additionalProperties: true` 和 schema 形式会报错。
-- 词表只支持 GPT-2 字节级 BPE。SentencePiece 的 `▁` 会在加载时拒绝。
-- 数值边界本身最多 15 位整数和 15 位小数；超出这个范围会报错，而不是截断。带范围的 `number` 不生成指数。
-- `$ref` 不能成环，也不能指向另一份文档。递归 schema 和 `$dynamicRef` 不支持。`$defs` 可以写在当前 schema 对象上。`$ref` 必须是无环 JSON Pointer，而且要落在某个 `$defs` 条目上。`$ref` 旁边除了 `type`、`enum`、`const`、`minLength`、`maxLength`、`pattern`，别的约束不会和引用一起生效。这些关键字可以沿一串无环引用逐层收窄。
-- GBNF 子集不能递归，不能带参数，也不能写 Unicode 属性或非 ASCII 字符类。入口是第一条规则，不是名字叫 `root` 的那条。
-
-## 设计
-
-正则先解析成语法树，再用 Thompson 构造变成 NFA，然后做子集构造得到 DFA。到不了接受状态的状态会被剪掉，每个状态记下到最近接受状态的最短距离。掩码层按 DFA 状态缓存“token → 下一状态”。算这个集合时，词表先收成一棵字节前缀树：相同前缀只沿 DFA 走一次，某个前缀走不通就把整棵子树丢掉。收集到的 token 再按编号排序。排序后的结果和“每个 token 单独走一遍”相同，合法 token 集合不变。结束符仍然只在接受状态放行，空的特殊 token 仍然排除。采样器在预算内均匀选择合法 token；超出预算后只选让距离下降的 token，因此在词表覆盖单字节时一定能结束。
+- [docs/schema-subset.md](docs/schema-subset.md)：支持的 JSON Schema 关键字和边界情况
+- [docs/gbnf.md](docs/gbnf.md)：GBNF 子集
+- [docs/design.md](docs/design.md)：算法细节、终止性、测试方法
+- [CHANGELOG.md](CHANGELOG.md)
 
 ## 测试
 
@@ -91,14 +186,17 @@ moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
 moon test --deny-warn
 ```
 
-- 正则与 `moonbitlang/regexp` 做差分，9000 次以上对照。
-- Schema 自动机随机生成的字符串全部交给 `moonschema` 校验。
-- 有限语言上，掩码允许的 token 与穷举得到的“存在合法补全的 token”一致。
-- 前缀树算出的 token 集合与逐个扫描词表的结果相同：小词表上每个 DFA 状态都对照过，GPT-2 词表上对照过若干状态。
-- 固定 GBNF 文法由 DFA 采样，采样结果全部被同一文法的解释器接受。
+正则与 `moonbitlang/regexp` 做了 9000 次以上差分对照；schema 自动机随机生成的字符串全部交给 moonschema 校验；有限语言上掩码与穷举结果一致；前缀树与逐个扫描词表结果一致；GBNF 采样结果全部被同一文法的解释器接受。CI 覆盖 Ubuntu、macOS、Windows 以及 native 后端。详见 [docs/design.md](docs/design.md#测试)。
+
+## 限制
+
+- 推理时每一步都要能拿到 logits。只返回整段文本的云端 API 只能事后校验。
+- 只生成紧凑 JSON（不含空白），object 属性按声明顺序输出。
+- 不支持递归结构：递归 schema、递归 GBNF 规则都会报错。
+- 词表只支持 GPT-2 字节级 BPE；SentencePiece 会在加载时拒绝。
 
 ## 参考与许可证
 
-方法参考 Outlines（Willard & Louf, 2023，Apache-2.0）、XGrammar（Apache-2.0）和 llguidance（MIT），不复制它们的代码。GPT-2 分词器文件为 MIT，由 `scripts/fetch-gpt2.sh` 下载，不放进仓库，也不进入发布包。
+方法参考 Outlines（Willard & Louf, 2023，Apache-2.0）、XGrammar（Apache-2.0）和 llguidance（MIT），不复制它们的代码。Playground 的 token 色块参考了 [tiktokenizer](https://github.com/dqbd/tiktokenizer) 的样式，同样是重新实现。GPT-2 分词器文件为 MIT，由 `scripts/fetch-gpt2.sh` 下载，不放进仓库，也不进入发布包。
 
-本项目使用 Apache-2.0。
+本项目使用 [Apache-2.0](LICENSE)。
