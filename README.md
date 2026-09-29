@@ -38,28 +38,23 @@ English: a constrained decoder for LLMs, written in MoonBit. It compiles JSON Sc
 ## 工作原理
 
 ```mermaid
-flowchart LR
-    subgraph C["① 约束"]
-        S["JSON Schema"]
-        R["Regex"]
-        G["GBNF"]
+flowchart TB
+    subgraph C["① 约束 → 自动机"]
+        direction TB
+        S["JSON Schema"] -- "schema::to_regex" --> AST["语法树"]
+        R["Regex"] --> AST
+        G["GBNF"] -- "规则展开" --> AST
+        AST -- "Thompson 构造" --> NFA["NFA"]
+        NFA -- "子集构造 · 剪枝 · 距离" --> DFA[("字节 DFA")]
     end
-    S -- "schema::to_regex" --> RE["一条字节级正则"]
-    R --> RE
-    RE --> AST["语法树"]
-    G -- "规则展开" --> AST
-    AST -- "Thompson 构造" --> NFA["NFA"]
-    NFA -- "子集构造 + 剪枝 + 距离" --> DFA[("字节 DFA")]
-
-    subgraph V["② 词表"]
-        TJ["tokenizer.json"] -- "tokenizers-moonbit" --> VO["Vocab<br/>token → 字节串"]
+    subgraph V["② 词表 → 前缀树"]
+        direction TB
+        TJ["tokenizer.json"] -- "tokenizers-moonbit" --> VO["token → 字节串"]
         VO --> TR["字节前缀树"]
     end
-
-    DFA --> GD{{"Guide"}}
+    DFA --> GD{{"③ Guide：每个状态的 token 掩码（带缓存）"}}
     TR --> GD
-    GD -- "allowed(state)" --> MK["③ token 掩码"]
-    MK --> SP["④ 采样器 / LLM"]
+    GD -- "allowed(state)" --> SP["④ 采样器：非法 token 的 logit 置 −∞"]
     SP -- "advance(state, token)" --> GD
 ```
 
