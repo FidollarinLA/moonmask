@@ -3,6 +3,18 @@ fn view(model : Model, emit : Emit[Msg]) -> Html {
   div(class="app", [
     view_header(model, emit),
     view_pipeline(model),
+    div(class="quick-guide", [
+      div(class="guide-title", "开始体验 · 3 steps"),
+      div(class="guide-steps", [
+        span("① 选择约束或修改左侧示例"),
+        span("② Step 逐步生成，或点击合法 token"),
+        span("③ 对比 unmasked，观察死状态与 EOS"),
+      ]),
+      div(
+        class="note",
+        "浏览器使用均匀随机采样，不运行语言模型。GPT-2 按钮只加载词表。格式合法不代表答案正确；切换约束或模式会重新开始。",
+      ),
+    ]),
     div(class="grid", [
       view_editor(model, emit),
       view_stream(model, emit),
@@ -100,7 +112,7 @@ fn view_pipeline(model : Model) -> Html {
     ("regex", "one pattern"),
     ("NFA → DFA", states),
     ("token mask", with_commas(model.lexicon.vocab.size()) + " tokens"),
-    ("sampler", "masked logits"),
+    ("sampler", "uniform random tokens"),
   ]
   let items = []
   for i, s in steps {
@@ -207,8 +219,18 @@ fn view_stream(model : Model, emit : Emit[Msg]) -> Html {
   })
   let toolbar = div(class="toolbar", [
     seg,
-    button(class="btn primary", on_click=emit(TogglePlay), play_label),
-    button(class="btn", on_click=emit(Step), "Step"),
+    button(
+      class="btn primary",
+      disabled=model.engine is Err(_),
+      on_click=emit(TogglePlay),
+      play_label,
+    ),
+    button(
+      class="btn",
+      disabled=model.engine is Err(_) || run.outcome != Going,
+      on_click=emit(Step),
+      "Step",
+    ),
     button(class="btn", on_click=emit(Reset), "Reset"),
     button(class="btn", on_click=emit(Reroll), "New seed"),
     select(class="speed", on_change=emit.map(v => SetSpeed(v)), speeds),
@@ -585,11 +607,7 @@ fn bench_row(
   div(class="brow", [
     span(class="blabel", label),
     div(class="btrack", [
-      div(
-        class="bfill " + cls,
-        style=["width:" + fixed(pct.max(1.0), 1) + "%"],
-        "",
-      ),
+      div(class="bfill " + cls, style=["width:" + fixed(pct, 1) + "%"], ""),
     ]),
     span(
       class="bval",

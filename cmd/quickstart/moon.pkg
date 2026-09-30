@@ -1,0 +1,7 @@
+import {
+  "FidollarinLA/moonmask/schema",
+  "FidollarinLA/moonmask/vocab",
+  "FidollarinLA/moonmask/mask",
+}
+
+pkgtype(kind: "executable")

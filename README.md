@@ -114,6 +114,21 @@ moon run cmd/main --target native -- --whitespace assets/gpt2/tokenizer.json \
 
 ## 快速开始
 
+需要 **MoonBit moonc ≥ 0.10.14**，先按[官方安装说明](https://docs.moonbitlang.com/en/latest/tutorial/tour.html)安装工具链。以下最小例子无需模型、Python、GPT-2 词表或 native 编译器；`moon update` 首次会获取依赖。
+
+```bash
+git clone https://github.com/FidollarinLA/moonmask.git
+cd moonmask
+# macOS / Linux:
+export PATH="$HOME/.moon/bin:$PATH"
+moon update
+moon run cmd/quickstart
+```
+
+Windows PowerShell 将 PATH 设置为 `$env:PATH = "$env:USERPROFILE\.moon\bin;$env:PATH"`，然后执行同样的 `moon update` 和 `moon run cmd/quickstart`。最小示例输出 `"ok"` 与 `PASS`：非法 token 即使分数更高也被屏蔽，只有文档接受后才放行 EOS。[完整源码](cmd/quickstart/main.mbt)。
+
+验证核心功能：`moon check --deny-warn`、`moon build --deny-warn`、`moon test --deny-warn`。完整词表测试前运行 `python scripts/fetch-gpt2.py`（Python 3.12，标准库；Windows/macOS/Linux 通用），或 Unix 的 `./scripts/fetch-gpt2.sh`，两者使用相同固定版本及 SHA-256。native 实验另需 C 编译器；真实模型另需 Node/Python/PyTorch，具体见下面的独立运行指南。
+
 **真实模型演示**：[examples/logits](examples/logits/README.md) 提供固定版本模型、运行命令和双重校验。在已记录的单个示例中，紧凑模式 11 tokens 完整结束；纯空白模式虽语法合法但持续换行，需要显式收尾策略才能按期 EOS。[结果与限制](docs/logits-demo.md)。模型推理由 Python/PyTorch 承担，约束、logits 选择及状态推进均由 MoonBit 实现。
 
 moonmask 还没有发布到 mooncakes。可以克隆仓库，在自己的项目里用 `moon.work` 引用源码：
@@ -143,7 +158,7 @@ if token == vocab.eos {
 
 正则和 GBNF 换一个编译入口即可：`@regex.compile("20[0-9]{2}-[01][0-9]")`、`@gbnf.compile(grammar)`，得到的都是同一种 `Dfa`。
 
-JSON 默认是紧凑模式。需要接受模型产生的缩进和换行时，使用 `@schema.compile(schema, whitespace=true)`（`to_regex` 同样支持）。只在结构边界和文档首尾放行空格、tab、CR、LF，字符串与数字内部规则、required 和逗号约束不变。Playground 的 JSON Schema 面板提供同一开关；本地新功能尚未发布到线上。
+JSON 默认是紧凑模式。需要接受模型产生的缩进和换行时，使用 `@schema.compile(schema, whitespace=true)`（`to_regex` 同样支持）。只在结构边界和文档首尾放行空格、tab、CR、LF，字符串与数字内部规则、required 和逗号约束不变。Playground 的 JSON Schema 面板提供同一开关；线上更新由 GitHub Pages 工作流部署，部署状态可在 Actions 查看。
 
 ## 支持什么
 

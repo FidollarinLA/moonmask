@@ -99,6 +99,32 @@ fn token_for_space(e : Engine) -> Int {
 }
 
 ///|
+test "editing immediately pauses the old engine until rebuild" {
+  let m = { ..init_model().step(None), playing: true, }
+  let edited = m.edit("{")
+  assert_false(edited.playing)
+  assert_true(edited.engine is Err(_))
+  assert_true(edited.bench is None)
+  assert_eq(edited.edits, m.edits + 1)
+  let stopped = edited.step(None)
+  assert_eq(stopped.run.tokens.length(), m.run.tokens.length())
+  assert_true(edited.rebuild().engine is Err(_))
+  let fixed = edited.edit(schema_presets[0].source).rebuild()
+  assert_true(fixed.engine is Ok(_))
+  assert_eq(fixed.run.tokens.length(), 0)
+}
+
+///|
+test "restarting pauses playback and keeps the requested seed and mask" {
+  let m = { ..init_model().step(None), playing: true, }
+  let restarted = m.restart(masked=false, seed=123)
+  assert_false(restarted.playing)
+  assert_false(restarted.run.masked)
+  assert_eq(restarted.run.seed, 123)
+  assert_eq(restarted.run.tokens.length(), 0)
+}
+
+///|
 test "JSON whitespace setting does not affect regex or grammar" {
   for mode in [Regex, Grammar] {
     let source = presets(mode)[0].source

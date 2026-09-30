@@ -231,8 +231,22 @@ fn Model::rebuild(self : Model) -> Model {
 fn Model::restart(self : Model, masked~ : Bool, seed~ : Int) -> Model {
   {
     ..self,
+    playing: false,
     run: fresh_run(self.next_id, masked, seed, self.engine),
     next_id: self.next_id + 1,
+  }
+}
+
+///|
+/// Stop the old decoder immediately while the edited constraint is debounced.
+fn Model::edit(self : Model, source : String) -> Model {
+  {
+    ..self,
+    source,
+    edits: self.edits + 1,
+    playing: false,
+    engine: Err("Compiling edited constraint…"),
+    bench: None,
   }
 }
 
@@ -310,8 +324,8 @@ fn update(model : Model, msg : Msg, emit : Emit[Msg]) -> (Model, Cmd) {
       ({ ..model, preset: i, source: list[i].source, }.rebuild(), @rabbita.none)
     }
     Edit(source) => {
-      let edits = model.edits + 1
-      ({ ..model, source, edits, }, @rabbita.delay(emit(Recompile(edits)), 350))
+      let m = model.edit(source)
+      (m, @rabbita.delay(emit(Recompile(m.edits)), 350))
     }
     Recompile(n) if n == model.edits => (model.rebuild(), @rabbita.none)
     Recompile(_) => (model, @rabbita.none)

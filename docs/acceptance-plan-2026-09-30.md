@@ -7,11 +7,11 @@
 - [x] 读取本地交接、根AGENTS、git状态；保留此前所有草稿。
 - [x] 用户本轮明确授权分阶段commit/push；_local仍禁止进入Git；不得改git config。
 - [ ] 核对以下九项证据，无法验证的列为待确认。
-- [ ] 重跑严格检查/测试/构建、logits协议及评分测试、限定Playground测试。
-- [ ] 第一阶段：提交并推送已有空白/logits/模型回归成果，记录commit及远端一致性。
-- [ ] 第二阶段：修复Playground操作状态/可视化说明，完善README干净环境复现和Windows入口；测试后推送。
+- [x] 重跑严格检查/测试/构建、logits协议及评分测试、限定Playground测试。
+- [ ] 第一阶段：本地已提交2118da0；GitHub推送等待Git Credential Manager认证，未确认成功。
+- [ ] 第二阶段：已修复编辑期间旧约束继续运行/重启自动播放；新增引导、键盘焦点、移动端布局、零成功率空色条。Playground10/10；新增无模型cmd/quickstart运行PASS，核心88/88。README安装与跨平台下载已更新；等待提交/推送。
 - [ ] 查询远端CI与Pages部署，记录真实状态和失败原因。
-- [ ] 北京时间23:59最终同步检查（定时设置成功前不可标完成）。
+- [ ] 北京时间23:59最终同步检查（已创建定时任务moonmask-9-30-23-59，待执行）。
 
 ## 九项验收证据
 
@@ -23,8 +23,8 @@
 | 4 README可复现 | 有文档，需改善 | 增加跨平台安装/最小示例与验证入口；不依赖私有_local工具链 |
 | 5 CI检查构建测试 | 配置满足，最新执行待查 | .github/workflows/ci.yml；Windows/Linux/macOS检查测试，JS协议及Pages构建 |
 | 6 可运行示例 | 本地满足 | cmd/main随机实验；examples/logits真实模型；Playground交互 |
-| 7 核心测试 | 本地历史通过，重跑确认 | 各后端88/88、Playground8/8、协议+评分10/10；边界/错误/EOS/预算覆盖 |
-| 8 mooncakes发布 | 待在线核实 | 本地moon.mod版本0.1.0并不证明已发布；查询注册表或消费包验证 |
+| 7 核心测试 | 本轮通过 | 各后端88/88、Playground8/8、协议+评分10/10；边界/错误/EOS/预算覆盖 |
+| 8 mooncakes发布 | 未满足/待发布 | README写明尚未发布，在线未找到；单独请求moon publish授权，待用户回应 |
 | 9 OSI许可/依赖 | 主许可证满足，依赖复查 | Apache-2.0 LICENSE；模型不入库，引用/依赖需标来源与许可 |
 
 ## 产品优先级与范围
@@ -48,3 +48,5 @@ moon fmt
 ```
 
 Playground目录运行 `moon test --target js -p FidollarinLA/moonmask-playground/app`。仅将明确审阅过的文件git add，永不`git add .`。每轮更新_local/AGENT.md §2/§9。以实际推送成功为准，不把计划写成结果。
+
+23:53本地核查：编译器/示例/核心测试满足，Playground操作改进通过。GitHub远端与mooncakes尚未确认更新，不宣称九项全部通过。

@@ -32,6 +32,7 @@ jobs:
         run: ./scripts/fetch-gpt2.sh
       - run: moon check --deny-warn
       - run: moon build --deny-warn
+      - run: moon run cmd/quickstart
       - run: moon test --deny-warn
       - name: Verify formatting
         shell: bash

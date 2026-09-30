@@ -50,6 +50,32 @@ a:hover {
   padding: 24px 24px 40px;
 }
 
+.quick-guide {
+  margin-bottom: 18px;
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(79, 209, 197, 0.05);
+}
+.guide-title { font-weight: 700; margin-bottom: 8px; }
+.guide-steps { display: flex; flex-wrap: wrap; gap: 10px 24px; margin-bottom: 8px; }
+button:focus-visible, select:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 3px;
+}
+@media (max-width: 600px) {
+  .app { padding: 14px 12px 24px; }
+  .card-head { flex-wrap: wrap; }
+  .brand { align-items: flex-start; }
+  .logo { flex: none; }
+  .brow { grid-template-columns: 80px minmax(0, 1fr); gap: 8px; }
+  .badge { margin-left: 0; }
+  .fsm { min-height: 220px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
 /* header */
 .top {
   display: flex;
