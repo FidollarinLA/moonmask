@@ -22,7 +22,13 @@ Live: <https://fidollarinla.github.io/moonmask/>
 5. **Monkey typewriter**: 30 masked and 30 unmasked random samples, all checked by
    the same validator (moonschema for schemas, the DFA otherwise).
 
-The default vocabulary is a 164-token toy set. "GPT-2" downloads the real
+Schema mode starts with **Compact JSON**. **Allow JSON whitespace** accepts SP,
+TAB, CR and LF at structural boundaries and document edges. Switching policy
+recompiles, pauses playback, clears the current run and benchmark, and preserves
+the seed. Regex and GBNF are unaffected. This is uniform random sampling, not a
+live language model or a model-quality benchmark.
+
+The default vocabulary is a 166-token toy set (including TAB and CR). "GPT-2" downloads the real
 50,257-token `tokenizer.json` from Hugging Face (pinned revision) and parses it
 with tokenizers-moonbit in the browser.
 
@@ -32,6 +38,12 @@ with tokenizers-moonbit in the browser.
 cd playground
 ./build.sh                 # moon build --target js --release, then copies to dist/
 python3 -m http.server -d dist 8000
+```
+
+Test only the app package (the workspace also includes the parent library):
+
+```bash
+moon test --target js -p FidollarinLA/moonmask-playground/app
 ```
 
 `moon.work` points at the parent directory, so the playground always builds

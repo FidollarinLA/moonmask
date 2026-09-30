@@ -6,9 +6,9 @@ import {
 }
 
 // Values
-pub fn compile(Json) -> @regex.Dfa raise SchemaError
+pub fn compile(Json, whitespace? : Bool) -> @regex.Dfa raise SchemaError
 
-pub fn to_regex(Json) -> String raise SchemaError
+pub fn to_regex(Json, whitespace? : Bool) -> String raise SchemaError
 
 // Errors
 pub suberror SchemaError {

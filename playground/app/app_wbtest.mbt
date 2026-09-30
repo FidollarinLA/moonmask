@@ -56,3 +56,57 @@ test "number formatting" {
   assert_eq(with_commas(50257), "50,257")
   assert_eq(with_commas(999), "999")
 }
+
+///|
+test "schema presets finish with whitespace and independent validation" {
+  let lexicon = { id: 0, vocab: toy_vocab(), }
+  for p in presets(Schema) {
+    guard compile(Schema, p.source, lexicon, 1, whitespace=true) is Ok(e) else {
+      fail("whitespace preset \{p.name} does not compile")
+    }
+    assert_eq(run_bench(e, 64, 10).masked_valid, 10)
+  }
+}
+
+///|
+test "whitespace rebuild resets decoding and benchmark with mode preserved" {
+  let m = init_model().step(None)
+  let m = { ..m, whitespace: true, playing: true, }.rebuild()
+  assert_true(m.whitespace)
+  assert_false(m.playing)
+  assert_true(m.bench is None)
+  assert_eq(m.run.tokens.length(), 0)
+  guard m.engine is Ok(e) else { fail("rebuild failed") }
+  assert_true(e.guide.allowed(e.guide.start()).contains(token_for_space(e)))
+  let mut m = { ..m, budget: 0, }
+  for _ in 0..<200 {
+    m = m.step(None)
+  }
+  assert_true(m.run.outcome is Complete(true))
+  let compact = { ..m, whitespace: false, }.rebuild()
+  guard compact.engine is Ok(e) else { fail("compact rebuild failed") }
+  assert_false(e.guide.allowed(e.guide.start()).contains(token_for_space(e)))
+}
+
+///|
+fn token_for_space(e : Engine) -> Int {
+  for i, bytes in e.guide.vocab.tokens {
+    if bytes == b" " {
+      return i
+    }
+  }
+  abort("missing space")
+}
+
+///|
+test "JSON whitespace setting does not affect regex or grammar" {
+  for mode in [Regex, Grammar] {
+    let source = presets(mode)[0].source
+    let (a, _, _) = build_dfa(mode, source)
+    let (b, _, _) = build_dfa(mode, source, whitespace=true)
+    assert_eq(a.state_count(), b.state_count())
+    for text in ["", " ", "abc", "\n"] {
+      assert_eq(a.accepts(text), b.accepts(text))
+    }
+  }
+}

@@ -20,7 +20,7 @@ moonmask 只接受它能精确编译的关键字。写不进这个子集的关�
 
 ## 限制
 
-- 只生成紧凑 JSON，不含空白。
+- 默认生成紧凑 JSON。`compile(schema, whitespace=true)` / `to_regex(schema, whitespace=true)` 可在文档首尾、容器内侧、冒号及逗号两侧接受空格、tab、CR、LF；不接受其他 Unicode 空白。该策略覆盖空容器、嵌套结构、`enum` / `const`、`anyOf` 和 `$ref`。它不在字符串或数字内部插入空白，不改变 required、属性顺序、长度与 pattern 约束，也不允许缺失、重复或尾随逗号。字符串中原本合法的空格依然属于字符串内容。
 - 语言为空就报错，不会编成一个不接受任何字符串的自动机。直接写在 schema 上的 `pattern` 与 `minLength` / `maxLength` 没有交集时如此，`minLength` 大于 `maxLength` 时如此，`$ref` 上的约束没有交集时也如此。
 - 字符串接受合法 UTF-8 和 `\uXXXX`。落单代理项和 `\u{...}` 会报错。`pattern` 不能写非 ASCII，也不能写 `\u` 或 Unicode 属性。
 - object 的属性顺序固定为声明顺序，不会调换。`additionalProperties: true` 和 schema 形式会报错。

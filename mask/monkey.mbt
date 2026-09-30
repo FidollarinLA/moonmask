@@ -7,8 +7,9 @@ pub(all) struct Sampled {
 
 ///|
 /// Uniformly random tokens under the mask. After `max_tokens`, only tokens that
-/// move strictly closer to an accepting state are chosen, so the output always
-/// terminates when the vocabulary contains every single-byte token.
+/// move strictly closer to an accepting state are chosen. A vocabulary with
+/// every single-byte token can complete unless the hard cap (4 * budget + 64)
+/// is reached first. Callers must check `finished`.
 pub fn monkey(g : Guide, rand : @random.Rand, max_tokens~ : Int) -> Sampled {
   let tokens : Array[Int] = []
   let text : Array[Byte] = []

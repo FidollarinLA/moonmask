@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "sentiment": {"enum": ["positive", "negative", "neutral"]},
+    "confidence": {"enum": ["low", "medium", "high"]}
+  },
+  "required": ["sentiment", "confidence"],
+  "additionalProperties": false
+}

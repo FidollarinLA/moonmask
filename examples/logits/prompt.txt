@@ -1,0 +1,13 @@
+Classify each review. Respond with one JSON object, using sentiment (positive, negative, neutral) and confidence (low, medium, high).
+
+Review: The food was excellent and the staff were kind.
+JSON: {"sentiment":"positive","confidence":"high"}
+
+Review: The package arrived broken and support never replied.
+JSON: {"sentiment":"negative","confidence":"high"}
+
+Review: The meeting is on Tuesday.
+JSON: {"sentiment":"neutral","confidence":"medium"}
+
+Review: I loved the friendly service and the delicious dinner.
+JSON:

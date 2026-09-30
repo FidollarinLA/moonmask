@@ -3,6 +3,7 @@ import {
   "FidollarinLA/moonmask/vocab",
   "moonbitlang/core/random",
   "moonbitlang/core/debug",
+  "moonbitlang/core/double",
 }
 
 import {

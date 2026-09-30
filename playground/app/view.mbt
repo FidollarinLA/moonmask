@@ -146,6 +146,22 @@ fn view_editor(model : Model, emit : Emit[Msg]) -> Html {
   }
   card("editor", "1", "Constraint", "约束", [
     div(class="tabs", tabs),
+    if model.mode == Schema {
+      div(class="toolbar", [
+        button(
+          class=if model.whitespace { "pill" } else { "pill on" },
+          on_click=emit(SetWhitespace(false)),
+          "Compact JSON",
+        ),
+        button(
+          class=if model.whitespace { "pill on" } else { "pill" },
+          on_click=emit(SetWhitespace(true)),
+          "Allow JSON whitespace",
+        ),
+      ])
+    } else {
+      nothing
+    },
     select(class="preset", on_change=emit.map(v => SetPreset(v)), options),
     textarea(
       class="code",
@@ -607,7 +623,7 @@ fn view_bench(model : Model, emit : Emit[Msg]) -> Html {
           class="note",
           "\{b.samples} + \{b.samples} samples in " +
           fixed(b.millis, 0) +
-          " ms, budget \{model.budget} tokens. First valid masked sample:",
+          " ms, soft budget \{model.budget} tokens (masked samples may use extra tokens to finish). First valid masked sample:",
         ),
         pre(class="raw", if b.example == "" { "—" } else { b.example }),
       ]

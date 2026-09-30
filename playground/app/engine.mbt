@@ -22,6 +22,8 @@ fn toy_vocab() -> @vocab.Vocab {
     tokens.push(Bytes::make(1, c.to_byte()))
   }
   tokens.push(b"\n")
+  tokens.push(b"\t")
+  tokens.push(b"\r")
   let words = [
     "{\"", "\"}", "\":", "\",", "\",\"", "\":\"", ", ", "\": ", "},{", "[{", "}]",
     "true", "false", "null", "name", "age", "role", "admin", "editor", "viewer",
@@ -56,6 +58,7 @@ impl Eq for Engine with fn equal(a, b) {
 fn build_dfa(
   mode : Mode,
   source : String,
+  whitespace? : Bool = false,
 ) -> (@regex.Dfa, @moonschema.Schema?, String?) raise {
   match mode {
     Schema => {
@@ -65,7 +68,7 @@ fn build_dfa(
       } noraise {
         s => Some(s)
       }
-      let pattern = @schema.to_regex(json)
+      let pattern = @schema.to_regex(json, whitespace~)
       (@regex.compile(pattern), validator, Some(pattern))
     }
     Regex => (@regex.compile(source), None, None)
@@ -79,9 +82,10 @@ fn compile(
   source : String,
   lexicon : Lexicon,
   id : Int,
+  whitespace? : Bool = false,
 ) -> Result[Engine, String] {
   let t0 = now_ms()
-  try build_dfa(mode, source) catch {
+  try build_dfa(mode, source, whitespace~) catch {
     e => Err(e.to_string())
   } noraise {
     (dfa, validator, pattern) => {
@@ -129,6 +133,7 @@ fn token_text(v : @vocab.Vocab, id : Int) -> String {
       ' ' => out.write_char('·')
       '\n' => out.write_char('↵')
       '\t' => out.write_char('⇥')
+      '\r' => out.write_string("\\r")
       c => out.write_char(c)
     }
   }

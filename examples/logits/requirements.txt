@@ -1,0 +1,7 @@
+transformers==4.57.6
+tokenizers==0.22.2
+huggingface-hub==0.36.2
+safetensors==0.8.0
+jsonschema==4.26.0
+# Install the CPU/GPU PyTorch build appropriate to your machine separately.
+# The verified local run used torch 2.13.0+cpu; the report records the version.

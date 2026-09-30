@@ -1,0 +1,135 @@
+[
+  {
+    "id": "negative-review",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "sentiment": {
+          "enum": [
+            "positive",
+            "negative",
+            "neutral"
+          ]
+        },
+        "confidence": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        }
+      },
+      "required": [
+        "sentiment",
+        "confidence"
+      ],
+      "additionalProperties": false
+    },
+    "prompt": "Classify each review. Respond with one JSON object, using sentiment (positive, negative, neutral) and confidence (low, medium, high).\n\nReview: The food was excellent and the staff were kind.\nJSON: {\"sentiment\":\"positive\",\"confidence\":\"high\"}\n\nReview: The package arrived broken and support never replied.\nJSON: {\"sentiment\":\"negative\",\"confidence\":\"high\"}\n\nReview: The meeting is on Tuesday.\nJSON: {\"sentiment\":\"neutral\",\"confidence\":\"medium\"}\n\nReview: The service was rude and the food was terrible.\nJSON:\n",
+    "expected": {
+      "sentiment": "negative",
+      "confidence": "high"
+    }
+  },
+  {
+    "id": "tool-route",
+    "schema": {
+      "$defs": {
+        "city": {
+          "enum": [
+            "Paris",
+            "Tokyo"
+          ]
+        }
+      },
+      "type": "object",
+      "properties": {
+        "tool": {
+          "const": "weather"
+        },
+        "arguments": {
+          "type": "object",
+          "properties": {
+            "city": {
+              "$ref": "#/$defs/city"
+            }
+          },
+          "required": [
+            "city"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "tool",
+        "arguments"
+      ],
+      "additionalProperties": false
+    },
+    "prompt": "Translate each request into a JSON tool call.\n\nRequest: Weather in Tokyo\nJSON: {\"tool\":\"weather\",\"arguments\":{\"city\":\"Tokyo\"}}\n\nRequest: Weather in Paris\nJSON: {\"tool\":\"weather\",\"arguments\":{\"city\":\"Paris\"}}\n\nRequest: Weather in Tokyo\nJSON:",
+    "expected": {
+      "tool": "weather",
+      "arguments": {
+        "city": "Tokyo"
+      }
+    }
+  },
+  {
+    "id": "bounded-array",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "red",
+              "blue"
+            ]
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "prompt": "Copy the two colors in order into a JSON array.\n\nColors: blue, red\nJSON: {\"items\":[\"blue\",\"red\"]}\n\nColors: red, blue\nJSON: {\"items\":[\"red\",\"blue\"]}\n\nColors: blue, red\nJSON:",
+    "expected": {
+      "items": [
+        "blue",
+        "red"
+      ]
+    }
+  },
+  {
+    "id": "empty-container",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "boolean"
+          },
+          "maxItems": 0
+        },
+        "ready": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "items",
+        "ready"
+      ],
+      "additionalProperties": false
+    },
+    "prompt": "Return an empty items list and the ready flag.\n\nReady: yes\nJSON: {\"items\":[],\"ready\":true}\n\nReady: no\nJSON: {\"items\":[],\"ready\":false}\n\nReady: yes\nJSON:",
+    "expected": {
+      "items": [],
+      "ready": true
+    }
+  }
+]

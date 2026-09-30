@@ -21,9 +21,17 @@
 
 ## 采样器为什么一定能结束
 
-`mask::monkey_step` 在预算内均匀选择合法 token（在接受状态时 eos 也是候选）。超出预算后只选能让 `distance` 下降的 token，所以只要词表覆盖了单字节 token，每一步至少缩短一个字节，最终一定走到接受状态并输出 eos。`mask::monkey` 就是反复调用 `monkey_step`。
+`mask::monkey_step` 在预算内均匀选择合法 token（在接受状态时 eos 也是候选）。超出预算后只选能让 `distance` 严格下降的 token；若已在接受状态，立即选 eos。词表覆盖每个单字节 token 时，可以沿最短路径完成。`mask::monkey` 反复调用它，但还有 `max_tokens * 4 + 64` 的硬上限；超过硬上限或词表无法提供下降路径时返回 `finished=false`。因此 `max_tokens` 是开始强制收尾的软预算，并非输出长度上限；调用者必须检查 `finished`。
+
+## JSON 空白策略
+
+`schema::compile` / `to_regex` 默认 `whitespace=false`。开启时，内部 `Context` 携带根 schema 和 `[ \\t\\r\\n]*` 策略；容器、分隔符和文档首尾插入该规则，标量内部规则不变。`enum` / `const` 的规范 JSON 文本仅在字符串外的结构标点旁插入空白，跟踪反斜线转义以免误改字符串内容；引用过滤仍以紧凑序列化值检查约束交集。
+
+空白可能形成自环；预算后的严格距离下降排除无进展的空白循环，接受状态直接输出 eos。字节掩码本身仍允许合法的尾部空白，结束选择由采样策略负责。稀疏词表不保证 token 层可完成，测试明确验证其停滞返回值。
 
 ## 测试
+
+真实模型可调用 `Guide::greedy(state, logits)`。它不修改输入数组，只在 `allowed(state)` 中选取最高分；相同分数选择最小 token ID。NaN、正无穷和错误维度报错，负无穷表示候选被上游禁用。默认不强制收尾；可显式传 `finish=true` 排除非下降路径，在接受状态只考虑 EOS。没有可用候选时返回 `None`，与 EOS 不同。集成与真实逐步记录见 [logits-demo.md](logits-demo.md)。
 
 ```bash
 moon test --deny-warn

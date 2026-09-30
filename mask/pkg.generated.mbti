@@ -16,6 +16,12 @@ pub fn monkey_step(Guide, @random.Rand, Int, step~ : Int, max_tokens~ : Int) -> 
 pub fn monkey_unmasked(@vocab.Vocab, @random.Rand, max_tokens~ : Int) -> Sampled
 
 // Errors
+pub suberror LogitsError {
+  InvalidLogits(String)
+}
+pub fn LogitsError::output(Self, &Logger) -> Unit
+pub fn LogitsError::to_string(Self) -> String
+pub impl Show for LogitsError
 
 // Types and methods
 pub struct Guide {
@@ -26,6 +32,7 @@ pub struct Guide {
 }
 pub fn Guide::advance(Self, Int, Int) -> Int?
 pub fn Guide::allowed(Self, Int) -> Array[Int]
+pub fn Guide::greedy(Self, Int, Array[Double], finish? : Bool) -> Int? raise LogitsError
 pub fn Guide::is_accept(Self, Int) -> Bool
 pub fn Guide::new(@regex.Dfa, @vocab.Vocab) -> Self
 pub fn Guide::start(Self) -> Int

@@ -76,6 +76,7 @@ enum VocabState {
 ///|
 struct Model {
   mode : Mode
+  whitespace : Bool
   preset : Int
   source : String
   edits : Int
@@ -93,6 +94,7 @@ struct Model {
 ///|
 enum Msg {
   SetMode(Mode)
+  SetWhitespace(Bool)
   SetPreset(String)
   Edit(String)
   Recompile(Int)
@@ -189,6 +191,7 @@ fn init_model() -> Model {
   let engine = compile(Schema, source, lexicon, 1)
   {
     mode: Schema,
+    whitespace: false,
     preset: 0,
     source,
     edits: 0,
@@ -207,7 +210,13 @@ fn init_model() -> Model {
 ///|
 /// Recompiles the constraint and restarts decoding, keeping the seed and mode.
 fn Model::rebuild(self : Model) -> Model {
-  let engine = compile(self.mode, self.source, self.lexicon, self.next_id)
+  let engine = compile(
+    self.mode,
+    self.source,
+    self.lexicon,
+    self.next_id,
+    whitespace=self.whitespace,
+  )
   {
     ..self,
     engine,
@@ -286,6 +295,8 @@ fn load_gpt2(bytes : Bytes) -> @vocab.Vocab raise {
 ///|
 fn update(model : Model, msg : Msg, emit : Emit[Msg]) -> (Model, Cmd) {
   match msg {
+    SetWhitespace(whitespace) =>
+      ({ ..model, whitespace, }.rebuild(), @rabbita.none)
     SetMode(mode) if mode == model.mode => (model, @rabbita.none)
     SetMode(mode) =>
       (

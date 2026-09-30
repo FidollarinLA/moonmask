@@ -1,0 +1,37 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "FidollarinLA/moonmask-playground/app"
+
+// Values
+
+// Errors
+
+// Types and methods
+type Bench derive(Eq)
+
+type Engine
+
+type GEdge
+
+type GNode
+
+type Lexicon
+
+type Mode derive(Eq)
+
+type Model derive(Eq)
+
+type Msg
+
+type Outcome derive(Eq)
+
+type Preset
+
+type Rng
+
+type Run derive(Eq)
+
+type VocabState derive(Eq)
+
+// Type aliases
+
+// Traits

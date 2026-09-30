@@ -28,13 +28,28 @@ let fraction_exponent_re : String =
   #|(?:\.[0-9]{1,15})?(?:[eE][+-]?[0-9]{1,2})?
 
 ///|
-pub fn to_regex(schema : Json) -> String raise SchemaError {
-  gen(schema)
+/// Compile the supported schema subset to regex. By default, only compact JSON
+/// is accepted; `whitespace=true` permits SP, TAB, CR and LF at JSON boundaries.
+pub fn to_regex(
+  schema : Json,
+  whitespace? : Bool = false,
+) -> String raise SchemaError {
+  let ws = if whitespace { "[ \\t\\r\\n]*" } else { "" }
+  let pattern = gen(schema, ws)
+  if whitespace {
+    ws + "(?:" + pattern + ")" + ws
+  } else {
+    pattern
+  }
 }
 
 ///|
-pub fn compile(schema : Json) -> @regex.Dfa raise SchemaError {
-  let pattern = to_regex(schema)
+/// Build a byte-level DFA with the same whitespace policy as `to_regex`.
+pub fn compile(
+  schema : Json,
+  whitespace? : Bool = false,
+) -> @regex.Dfa raise SchemaError {
+  let pattern = to_regex(schema, whitespace~)
   try @regex.compile(pattern) catch {
     @regex.ParseError(msg~, ..) => raise Invalid(msg)
   } noraise {
@@ -166,8 +181,46 @@ fn matches_types(value : Json, types : Array[String]) -> Bool {
 }
 
 ///|
-fn literal(value : Json) -> String {
-  escape(value.stringify())
+priv struct Context {
+  root : Json
+  ws : String
+}
+
+///|
+// Tokenize the canonical JSON literal, adding whitespace only at punctuation
+// outside strings. Escaped quotes and punctuation inside strings stay literal.
+fn literal(value : Json, ctx : Context) -> String {
+  let buf = StringBuilder()
+  let mut in_string = false
+  let mut escaped = false
+  for c in value.stringify() {
+    if in_string {
+      buf.write_string(escape(c.to_string()))
+      if escaped {
+        escaped = false
+      } else if c == '\\' {
+        escaped = true
+      } else if c == '"' {
+        in_string = false
+      }
+    } else if c == '"' {
+      in_string = true
+      buf.write_char(c)
+    } else if c == '{' || c == '[' {
+      buf.write_string(escape(c.to_string()))
+      buf.write_string(ctx.ws)
+    } else if c == '}' || c == ']' {
+      buf.write_string(ctx.ws)
+      buf.write_string(escape(c.to_string()))
+    } else if c == ',' || c == ':' {
+      buf.write_string(ctx.ws)
+      buf.write_char(c)
+      buf.write_string(ctx.ws)
+    } else {
+      buf.write_string(escape(c.to_string()))
+    }
+  }
+  buf.to_string()
 }
 
 ///|
@@ -294,8 +347,8 @@ fn join_pointer(here : String, segments : Array[String]) -> String {
 }
 
 ///|
-fn lookup_ref(root : Json, target : String) -> Json raise SchemaError {
-  let mut cur = root
+fn lookup_ref(ctx : Context, target : String) -> Json raise SchemaError {
+  let mut cur = ctx.root
   for segment in pointer_segments(target) {
     guard cur is Object(fields) else { raise Invalid("$ref") }
     match fields.get(segment) {
@@ -307,9 +360,9 @@ fn lookup_ref(root : Json, target : String) -> Json raise SchemaError {
 }
 
 ///|
-fn gen(schema : Json) -> String raise SchemaError {
+fn gen(schema : Json, ws : String) -> String raise SchemaError {
   guard schema is Object(_) else { raise Unsupported("boolean schema") }
-  expand(schema, schema, [], "#")
+  expand(schema, { root: schema, ws, }, [], "#")
 }
 
 ///|
@@ -406,21 +459,21 @@ fn empty_limit() -> ChainLimit {
 fn apply_ref_siblings(
   body : Json,
   sib : RefSiblings,
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
   if sib.en is Some(_) && sib.co is Some(_) {
     raise Unsupported("enum/const with other constraints")
   }
-  let (core, chain, there) = follow_chain(body, root, stack, here)
-  apply_limit(core, merge_limit(chain, sib), root, stack, there)
+  let (core, chain, there) = follow_chain(body, ctx, stack, here)
+  apply_limit(core, merge_limit(chain, sib), ctx, stack, there)
 }
 
 ///|
 fn follow_chain(
   schema : Json,
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> (Map[String, Json], ChainLimit, String) raise SchemaError {
@@ -440,10 +493,10 @@ fn follow_chain(
       if stack.contains(canon) {
         raise Invalid("$ref cycle")
       }
-      let body = lookup_ref(root, canon)
+      let body = lookup_ref(ctx, canon)
       let (core, inner, there) = follow_chain(
         body,
-        root,
+        ctx,
         push_ref(stack, canon),
         canon,
       )
@@ -569,7 +622,7 @@ fn intersect_values(
 fn apply_limit(
   core : Map[String, Json],
   limit : ChainLimit,
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
@@ -583,13 +636,13 @@ fn apply_limit(
       None => None
       Some(ty) => Some(type_names(ty))
     }
-    let dfa = compile_re(expand_fields(core, root, stack, here))
-    return filter_values(values, types, dfa, limit_text_dfa(limit))
+    let dfa = compile_re(expand_fields(core, ctx, stack, here))
+    return filter_values(values, types, dfa, limit_text_dfa(limit), ctx)
   }
   if limit.has_text() {
     return assert_overlap(merged_limits(core, limit))
   }
-  expand_fields(core, root, stack, here)
+  expand_fields(core, ctx, stack, here)
 }
 
 ///|
@@ -598,6 +651,7 @@ fn filter_values(
   types : Array[String]?,
   dfa : @regex.Dfa,
   extra : @regex.Dfa?,
+  ctx : Context,
 ) -> String raise SchemaError {
   let parts : Array[String] = []
   for value in values {
@@ -611,8 +665,8 @@ fn filter_values(
     if extra is Some(extra) && !extra.accepts(text) {
       continue
     }
-    if !parts.contains(literal(value)) {
-      parts.push(literal(value))
+    if !parts.contains(literal(value, ctx)) {
+      parts.push(literal(value, ctx))
     }
   }
   if parts.is_empty() {
@@ -915,18 +969,18 @@ fn type_json(types : Array[String]) -> Json raise SchemaError {
 ///|
 fn expand(
   schema : Json,
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
   guard schema is Object(fields) else { raise Unsupported("boolean schema") }
-  expand_fields(fields, root, stack, here)
+  expand_fields(fields, ctx, stack, here)
 }
 
 ///|
 fn bind_defs(
   fields : Map[String, Json],
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> Map[String, Json] raise SchemaError {
@@ -936,7 +990,7 @@ fn bind_defs(
       let defined = read_defs(fields)
       for name, body in defined {
         let ptr = join_pointer(here, ["$defs", name])
-        let _ = expand(body, root, push_ref(stack, ptr), ptr)
+        let _ = expand(body, ctx, push_ref(stack, ptr), ptr)
       }
       drop_defs(fields)
     }
@@ -946,11 +1000,11 @@ fn bind_defs(
 ///|
 fn expand_fields(
   fields : Map[String, Json],
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
-  let fields = bind_defs(fields, root, stack, here)
+  let fields = bind_defs(fields, ctx, stack, here)
   for key in fields.keys() {
     if !is_known(key) {
       raise Unsupported(key)
@@ -963,15 +1017,15 @@ fn expand_fields(
     if stack.contains(canon) {
       raise Invalid("$ref cycle")
     }
-    let body = lookup_ref(root, canon)
+    let body = lookup_ref(ctx, canon)
     let next = push_ref(stack, canon)
     if !sib.has_constraint() {
-      return expand(body, root, next, canon)
+      return expand(body, ctx, next, canon)
     }
-    return apply_ref_siblings(body, sib, root, next, canon)
+    return apply_ref_siblings(body, sib, ctx, next, canon)
   }
   if fields.get("const") is Some(_) || fields.get("enum") is Some(_) {
-    return gen_enum(fields)
+    return gen_enum(fields, ctx)
   }
   if fields.get("anyOf") is Some(options) {
     reject_foreign(fields, ["anyOf"])
@@ -979,7 +1033,7 @@ fn expand_fields(
     let parts = []
     for i, item in items {
       parts.push(
-        expand(item, root, stack, join_pointer(here, ["anyOf", "\{i}"])),
+        expand(item, ctx, stack, join_pointer(here, ["anyOf", "\{i}"])),
       )
     }
     return alt(parts)
@@ -997,17 +1051,20 @@ fn expand_fields(
             kept.push((key, value))
           }
         }
-        parts.push(gen_typed(Map::from_array(kept), ty, root, stack, here))
+        parts.push(gen_typed(Map::from_array(kept), ty, ctx, stack, here))
       }
       alt(parts)
     }
-    Some(String(ty)) => gen_typed(fields, ty, root, stack, here)
+    Some(String(ty)) => gen_typed(fields, ty, ctx, stack, here)
     Some(_) => raise Invalid("type")
   }
 }
 
 ///|
-fn gen_enum(fields : Map[String, Json]) -> String raise SchemaError {
+fn gen_enum(
+  fields : Map[String, Json],
+  ctx : Context,
+) -> String raise SchemaError {
   reject_foreign(fields, ["type", "const", "enum"])
   let types = match fields.get("type") {
     None => None
@@ -1034,7 +1091,7 @@ fn gen_enum(fields : Map[String, Json]) -> String raise SchemaError {
     if types is Some(types) && !matches_types(value, types) {
       continue
     }
-    parts.push(literal(value))
+    parts.push(literal(value, ctx))
   }
   if parts.is_empty() {
     raise Invalid("enum has no value of the declared type")
@@ -1148,7 +1205,7 @@ fn check_user_pattern(pattern : String) -> Unit raise SchemaError {
 fn gen_typed(
   fields : Map[String, Json],
   ty : String,
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
@@ -1178,8 +1235,8 @@ fn gen_typed(
       reject_foreign(fields, ["type"])
       "null"
     }
-    "object" => gen_object(fields, root, stack, here)
-    "array" => gen_array(fields, root, stack, here)
+    "object" => gen_object(fields, ctx, stack, here)
+    "array" => gen_array(fields, ctx, stack, here)
     _ => raise Unsupported(ty)
   }
 }
@@ -1187,7 +1244,7 @@ fn gen_typed(
 ///|
 fn gen_object(
   fields : Map[String, Json],
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
@@ -1224,26 +1281,33 @@ fn gen_object(
       members.push(
         (
           escape(key.to_json().stringify()) +
+          ctx.ws +
           ":" +
-          expand(child, root, stack, join_pointer(here, ["properties", key])),
+          ctx.ws +
+          expand(child, ctx, stack, join_pointer(here, ["properties", key])),
           required.contains(key),
         ),
       )
     }
   }
-  "\\{" + object_members(members) + "\\}"
+  "\\{" + ctx.ws + object_members(members, ctx) + ctx.ws + "\\}"
 }
 
 ///|
 /// Members in declaration order, where optional ones may be left out. `after`
 /// is the tail once some member has been written, so every member it adds
 /// starts with a comma; `first` picks the first member that is written.
-fn object_members(members : Array[(String, Bool)]) -> String {
+fn object_members(members : Array[(String, Bool)], ctx : Context) -> String {
+  let comma = ctx.ws + "," + ctx.ws
   let n = members.length()
   let after = Array::make(n + 1, "")
   for i = n - 1; i >= 0; i = i - 1 {
     let (piece, required) = members[i]
-    after[i] = (if required { "," + piece } else { "(," + piece + ")?" }) +
+    after[i] = (if required {
+        comma + piece
+      } else {
+        "(" + comma + piece + ")?"
+      }) +
       after[i + 1]
   }
   let mut first = ""
@@ -1264,7 +1328,7 @@ fn object_members(members : Array[(String, Bool)]) -> String {
 ///|
 fn gen_array(
   fields : Map[String, Json],
-  root : Json,
+  ctx : Context,
   stack : Array[String],
   here : String,
 ) -> String raise SchemaError {
@@ -1272,25 +1336,28 @@ fn gen_array(
   guard fields.get("items") is Some(items) else {
     raise Unsupported("array without items")
   }
-  let item = expand(items, root, stack, join_pointer(here, ["items"]))
+  let item = expand(items, ctx, stack, join_pointer(here, ["items"]))
+  let open = "\\[" + ctx.ws
+  let close = ctx.ws + "\\]"
+  let comma = ctx.ws + "," + ctx.ws
   let min = bound_of(fields, "minItems").unwrap_or(0)
   let max = bound_of(fields, "maxItems")
   if max is Some(max) && min > max {
     raise Invalid("minItems > maxItems")
   }
   if max is Some(0) {
-    return "\\[\\]"
+    return open + close
   }
-  let extra = item + "(?:," + item + ")"
+  let extra = item + "(?:" + comma + item + ")"
   if min == 0 {
     match max {
-      None => "\\[(?:" + extra + "*)?\\]"
-      Some(max) => "\\[(?:" + extra + "{0,\{max - 1}})?\\]"
+      None => open + "(?:" + extra + "*)?" + close
+      Some(max) => open + "(?:" + extra + "{0,\{max - 1}})?" + close
     }
   } else {
     match max {
-      None => "\\[" + extra + "{\{min - 1},}\\]"
-      Some(max) => "\\[" + extra + "{\{min - 1},\{max - 1}}\\]"
+      None => open + extra + "{\{min - 1},}" + close
+      Some(max) => open + extra + "{\{min - 1},\{max - 1}}" + close
     }
   }
 }

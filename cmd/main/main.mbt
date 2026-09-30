@@ -33,15 +33,21 @@ fn preview(text : Bytes) -> String {
 
 ///|
 fn run(args : Array[String]) -> Unit raise {
-  let tok = @tokenizer.from_file(args[1])
+  let whitespace = args[1] == "--whitespace"
+  let offset = if whitespace { 2 } else { 1 }
+  if args.length() < offset + 2 {
+    fail("expected tokenizer and at least one schema")
+  }
+  let tok = @tokenizer.from_file(args[offset])
   let vocab = @vocab.from_tokenizer(tok, eos_token="<|endoftext|>")
   println("vocab size: \{vocab.size()}, runs per schema: \{runs}")
+  println("JSON whitespace: \{whitespace}; uniform random sampling, no model")
   let samples : Array[String] = []
   let mut timed = false
   let rows : Array[String] = []
-  for path in args[2:] {
+  for path in args[offset + 1:] {
     let schema = @json.parse(@fs.read_file_to_string(path))
-    let dfa = @schema.compile(schema)
+    let dfa = @schema.compile(schema, whitespace~)
     let guide = @mask.Guide::new(dfa, vocab)
     if !timed {
       let started = @bench.monotonic_clock_start()
@@ -95,7 +101,9 @@ fn run(args : Array[String]) -> Unit raise {
 fn main {
   let args = @env.args()
   if args.length() < 3 {
-    println("usage: moon run cmd/main -- <tokenizer.json> <schema.json>...")
+    println(
+      "usage: moon run cmd/main -- [--whitespace] <tokenizer.json> <schema.json>...",
+    )
     panic()
   }
   run(args) catch {

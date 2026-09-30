@@ -29,11 +29,13 @@ English: a constrained decoder for LLMs, written in MoonBit. It compiles JSON Sc
 | | 不加约束 | 用 moonmask |
 | --- | --- | --- |
 | 做法 | 让模型自由生成，结束后做 JSON 校验，不合法就重试 | 每一步只允许“接上之后仍可能合法”的 token，其余 logit 置为 −∞ |
-| 合法率 | 取决于模型；随机采样时 **0 / 100** | 由算法保证；随机采样时 **100 / 100** |
+| 结构合法性 | 取决于模型；既有随机实验 **0 / 100** | 保持合法前缀；既有随机实验完成输出 **100 / 100**，达到预算仍须检查 EOS |
 | 成本 | 重试浪费 token 和时间 | 每个 DFA 状态的掩码算一次后缓存 |
 | 适用 | 任何 API | 能拿到每一步 logits 的推理（进程内或本地推理服务） |
 
 一句话：**moonmask 负责告诉采样器“这一步哪些 token 能选”，模型只在合法的范围内做选择。**
+
+格式合法不等于答案正确，也不等于模型会主动结束。真实模型的[多任务回归](examples/logits/README.md#multi-case-regression)分别记录 schema 校验、EOS 和预期答案匹配，不将随机实验合法率当作模型准确率。
 
 ## 工作原理
 
@@ -95,17 +97,24 @@ sequenceDiagram
 | [`order.json`](examples/schemas/order.json) | `██████████` **100/100** | `··········` 0/100 | 68.29 | 1,401 |
 | [`tool_call.json`](examples/schemas/tool_call.json) | `██████████` **100/100** | `··········` 0/100 | 34.70 | 1,016 |
 
-随机选 token 是最差的“模型”：它完全不懂 JSON。即便如此，加上掩码后 300 次全部合法。真实模型本来就倾向于合法输出，掩码只是把它偶尔的错误堵死。
+2026-09-29 在 Windows native 后端复跑：紧凑模式复现上表；空白模式三组也各为 **100/100**（不加掩码各 **0/100**），平均 token 数分别为 **57.99 / 93.08 / 53.78**。[完整命令、环境、预算差异与结果](docs/verification-2026-09-29.md)。
 
-复现（完整运行约 2 秒）：
+这是随机采样器的结构合法性实验，没有加载语言模型。结果不证明真实模型的语义质量、任务准确率或推理性能有所提高。另有独立的[真实模型 logits 示例](examples/logits/README.md)：CPU DistilGPT-2 提供逐步分数，由 MoonBit 选择 token，并记录完整轨迹。
+
+复现（耗时取决于机器和构建状态）：
 
 ```bash
 ./scripts/fetch-gpt2.sh     # 按固定版本下载 GPT-2 tokenizer.json 并校验 SHA-256
 moon run cmd/main --target native -- assets/gpt2/tokenizer.json \
   examples/schemas/user.json examples/schemas/order.json examples/schemas/tool_call.json
+# 可选空白模式：同样三组 schema、种子和词表
+moon run cmd/main --target native -- --whitespace assets/gpt2/tokenizer.json \
+  examples/schemas/user.json examples/schemas/order.json examples/schemas/tool_call.json
 ```
 
 ## 快速开始
+
+**真实模型演示**：[examples/logits](examples/logits/README.md) 提供固定版本模型、运行命令和双重校验。在已记录的单个示例中，紧凑模式 11 tokens 完整结束；纯空白模式虽语法合法但持续换行，需要显式收尾策略才能按期 EOS。[结果与限制](docs/logits-demo.md)。模型推理由 Python/PyTorch 承担，约束、logits 选择及状态推进均由 MoonBit 实现。
 
 moonmask 还没有发布到 mooncakes。可以克隆仓库，在自己的项目里用 `moon.work` 引用源码：
 
@@ -122,13 +131,19 @@ let vocab = @vocab.from_tokenizer(tok, eos_token="<|endoftext|>")
 let guide = @mask.Guide::new(@schema.compile(schema), vocab)
 let mut state = guide.start()
 // 每一步：只保留 guide.allowed(state)，其余 logit 置为 -inf，采样得到 token，然后：
-match guide.advance(state, token) {
-  Some(next) => state = next
-  None => () // eos：输出已经完整且合法
+if token == vocab.eos {
+  assert_true(guide.is_accept(state)) // 仅在接受状态允许结束
+} else {
+  match guide.advance(state, token) {
+    Some(next) => state = next
+    None => panic() // 非法 token；不能把 None 一律当作合法 eos
+  }
 }
 ```
 
 正则和 GBNF 换一个编译入口即可：`@regex.compile("20[0-9]{2}-[01][0-9]")`、`@gbnf.compile(grammar)`，得到的都是同一种 `Dfa`。
+
+JSON 默认是紧凑模式。需要接受模型产生的缩进和换行时，使用 `@schema.compile(schema, whitespace=true)`（`to_regex` 同样支持）。只在结构边界和文档首尾放行空格、tab、CR、LF，字符串与数字内部规则、required 和逗号约束不变。Playground 的 JSON Schema 面板提供同一开关；本地新功能尚未发布到线上。
 
 ## 支持什么
 
@@ -173,6 +188,8 @@ moonmask/
 - [docs/schema-subset.md](docs/schema-subset.md)：支持的 JSON Schema 关键字和边界情况
 - [docs/gbnf.md](docs/gbnf.md)：GBNF 子集
 - [docs/design.md](docs/design.md)：算法细节、终止性、测试方法
+- [examples/logits/README.md](examples/logits/README.md)：真实模型 logits 接入、协议与运行方法
+- [docs/logits-demo.md](docs/logits-demo.md)：固定版本真实模型的逐步证据与限制
 - [CHANGELOG.md](CHANGELOG.md)
 
 ## 测试

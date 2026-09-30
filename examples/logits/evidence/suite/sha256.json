@@ -1,0 +1,22 @@
+{
+  "encoding": "SHA-256 of parsed JSON serialized with Python json.dumps(sort_keys=True, separators=(comma, colon), ensure_ascii=True, allow_nan=False), ASCII bytes, no trailing newline. Independent of checkout line endings.",
+  "files": {
+    "bounded-array/completion-0.json": "48422239f47b87c1bc3fd230006c1c9282ff055488fb63ff867154d7f67f9866",
+    "bounded-array/completion-1.json": "1e045ad4e967aa3a424293bfab474cc75e18b90ae38672e2ed6322aab6055780",
+    "bounded-array/pure-0.json": "36251049b04f441c60dbd28ef753cf6de6a86883b7a8d83956ca235c8daa9d0e",
+    "bounded-array/pure-1.json": "65b04a1094ede2fc2e7a9137bfe3c63f7a80db46a493eba18c1088c005d33b46",
+    "empty-container/completion-0.json": "36e50aaa02b07501f24a50e0f50b109f66b1c6238fa5837ba9469c01319884ff",
+    "empty-container/completion-1.json": "2d2efc5cdd319b12343ae3d425ace2097ad38855901a9ffe5d2ea329d6268f3d",
+    "empty-container/pure-0.json": "a10be90278144cc0cbf1534c4c99c47d332fd5fce03f82e25101887c9c3220b1",
+    "empty-container/pure-1.json": "308e901389d58823fb85be78677c6c73cce5ff31f3aabd124a8e1640bbc70901",
+    "negative-review/completion-0.json": "68e3726d135f6b9db9b16bfef82903d0cf8e950fa81151f0dd577977928263fe",
+    "negative-review/completion-1.json": "5f1664af87699b36555a8dcc6e2941ef610222b2407fd0f9b53ec365f80cdb7e",
+    "negative-review/pure-0.json": "92bdf3f6b9a93a7af386085a29f1f7669e05b3bd2e76ba9ac928e7291fc30297",
+    "negative-review/pure-1.json": "552a2fb80f1050ac20f76b6f8ff50713a8d2734b5f51fa9cb44d4b59d920ee2b",
+    "summary.json": "7c6b1fcf4562db5c364378ae56228a565984534e3bfc994e6581fe02816cd786",
+    "tool-route/completion-0.json": "b6890cfb82a56a91e20cf7579440f775d6033a69e584f8c1e8a8f8d1352c3358",
+    "tool-route/completion-1.json": "8ec76e61d58d7f2f178307d8eb3c8656ebd5a851a42c695e587dc8d4950cbc7b",
+    "tool-route/pure-0.json": "c02b9ebfa7029f76ec0aa2d7acfe6120c611444eecb9589f5b8e39a84c4c2eb1",
+    "tool-route/pure-1.json": "ad5d085402a5f45d2558e93372a461c1b163a0b952d949bf4fa04ab5321f5972"
+  }
+}

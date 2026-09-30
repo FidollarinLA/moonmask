@@ -31,6 +31,7 @@ jobs:
         shell: bash
         run: ./scripts/fetch-gpt2.sh
       - run: moon check --deny-warn
+      - run: moon build --deny-warn
       - run: moon test --deny-warn
       - name: Verify formatting
         shell: bash
@@ -84,3 +85,45 @@ jobs:
           examples/schemas/user.json
           examples/schemas/order.json
           examples/schemas/tool_call.json
+
+      - name: Monkey typewriter experiment with JSON whitespace
+        if: hashFiles('mask/moon.pkg') != ''
+        run: >
+          moon run cmd/main --target native -- --whitespace
+          assets/gpt2/tokenizer.json
+          examples/schemas/user.json
+          examples/schemas/order.json
+          examples/schemas/tool_call.json
+
+  logits-protocol:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Set up MoonBit (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+      - name: Set up MoonBit (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          irm https://cli.moonbitlang.com/install/powershell.ps1 | iex
+          "$env:USERPROFILE\.moon\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+      - run: moon update
+      - name: Fetch fixed GPT-2 tokenizer
+        shell: bash
+        run: ./scripts/fetch-gpt2.sh
+      - run: moon check --target js --deny-warn
+      - run: moon build --target js --release cmd/logits
+      - run: python -m unittest discover -s examples/logits -p test_protocol.py -v
+      - run: python -m unittest discover -s examples/logits -p test_suite.py -v
