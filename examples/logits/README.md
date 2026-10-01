@@ -24,7 +24,7 @@ _local/model-venv/Scripts/python.exe examples/logits/run.py --max-tokens 64
 _local/model-venv/Scripts/python.exe examples/logits/run.py --max-tokens 64 --finish-after 32 --output _local/logits-completion.json
 ```
 
-Both commands build `cmd/logits` for JS, download the same fixed model revision on first use, then run compact, whitespace and unmasked cases with the same prompt and hard token limit. Default cache and reports stay under ignored `_local/`. On this migrated machine, first run `. ./_local/env.ps1` to select its portable MoonBit toolchain. For subsequent offline runs, `--model-dir PATH` accepts a complete local model directory; its hashes are recorded without assuming provenance.
+Both commands build `cmd/logits` for JS, download the same fixed model revision on first use, then run compact, whitespace and unmasked cases with the same prompt and hard token limit. Default cache and reports stay under ignored `_local/`. Use a standard MoonBit installation on your PATH; no private setup script is required. For subsequent offline runs, `--model-dir PATH` accepts a complete local model directory; its hashes are recorded without assuming provenance.
 
 Model revision: `2290a62682d06624634c1f46a6ad5be0f47f38aa`. Only safetensors weights are loaded, with `trust_remote_code=False`. The driver compares the full tokenizer token-ID mapping, vocabulary size and EOS ID before decoding. The model card declares Apache-2.0; model weights remain outside this repository. The inference packages are used as dependencies, not copied implementations.
 
