@@ -1,6 +1,48 @@
 # 开发证据与演示指南
 
-用户已确认项目通过验收，无需再提交表格。本文件保留为开发演示指南，不是申报表；后续重点是功能、测试与可复现证据。
+根据选手提供的验收指南，审核通过后无需再次提交表格，只需持续开发并上传 GitHub。本文记录九项验收证据与复现入口；审核通过不等于最终验收通过，最终结论由主办方作出。
+
+## 九项验收对照
+
+| 验收要求 | 实现与验证入口 |
+| --- | --- |
+| 1. MoonBit 为主，moonc ≥ 0.10.14 | 核心五包、CLI 和 Playground 均为 MoonBit；`moon version --all` 查看工具链，README 标明最低版本。Python 仅用于可选模型推理与独立验证。 |
+| 2. GitHub 公开，历史清晰 | [公开仓库与历史](https://github.com/FidollarinLA/moonmask/commits/main/)，保留真实开发和发布时间。 |
+| 3. 结构与核心功能 | `regex/schema/gbnf/vocab/mask` 分包；支持范围与不支持项见 [Schema 规格](schema-subset.md)、[GBNF 规格](gbnf.md) 和 [设计](design.md)。 |
+| 4. README 可复现 | [README](../README.md) 含工具链、包安装、最小示例、源码运行、模型演示及限制。 |
+| 5. CI 覆盖检查、构建、测试 | [CI](../.github/workflows/ci.yml) 覆盖 Windows/Linux/macOS、native、Playground、logits 协议与评分；另检查格式及公开接口。 |
+| 6. 可运行示例 | `moon run cmd/quickstart` 无需模型或词表；[模型示例](../examples/logits/README.md) 为可选扩展。 |
+| 7. 核心测试 | 88 项核心测试、10 项 Playground 测试、6 项协议与 4 项评分测试；见下方复现命令。测试数仅描述当前版本，不代表穷尽所有输入。 |
+| 8. mooncakes 发布 | 模块 `FidollarinLA/moonmask@0.1.0`；使用 `moon view FidollarinLA/moonmask` 查询、`moon add FidollarinLA/moonmask@0.1.0` 安装。[包文档](https://mooncakes.io/docs/FidollarinLA/moonmask)。 |
+| 9. OSI 许可证与来源 | 根目录 [Apache-2.0 LICENSE](../LICENSE)，[依赖与参考来源](dependencies.md)。模型权重及下载词表不随包分发。 |
+
+## 0.1.0 发布验证
+
+2026-10-01 北京时间 15:22:59，mooncakes 接受 `FidollarinLA/moonmask@0.1.0`（注册表记录的 UTC 时间为 07:22:59）。`moon view FidollarinLA/moonmask` 已返回版本、Apache-2.0 许可及公开仓库地址。随后在临时独立项目中实际下载发布包，通过 `moon check --deny-warn`、`moon build --deny-warn` 和 quickstart；没有使用本地模块覆盖。
+
+本机 moonc v0.10.14：核心与 native 各 88/88，Playground 10/10，协议与评分 10/10；六组 native 随机实验（紧凑/空白 × 三个 schema）分别 masked 100/100、unmasked 0/100。已验证格式与接口无额外变化。真实模型的已有记录见下文，本次发布核查没有重新下载权重或重跑模型推理。
+
+## 本地复现
+
+使用 moonc ≥ 0.10.14，源码根目录执行：
+
+```bash
+moon version --all
+moon update
+./scripts/fetch-gpt2.sh  # Windows: python scripts/fetch-gpt2.py
+moon check --deny-warn
+moon build --deny-warn
+moon test --deny-warn
+moon run cmd/quickstart
+moon test --target native --deny-warn
+moon check --target js --deny-warn
+moon build --target js --release cmd/logits
+python3 -m unittest discover -s examples/logits -p 'test_*.py' -v
+moon info && moon fmt
+git diff --exit-code
+```
+
+协议测试需 Node.js；native 测试需 C 编译器。Playground 在 `playground/` 内运行 `moon check --deny-warn`、`moon test --target js -p FidollarinLA/moonmask-playground/app` 与 `./build.sh`。最新执行结果以 [Actions](https://github.com/FidollarinLA/moonmask/actions) 为准。
 
 ## 项目说明
 
@@ -32,6 +74,6 @@ moonmask 是 MoonBit 原生的结构化输出约束库，把受支持的 JSON Sc
 
 随后补冷/热状态掩码延迟、编译时间、内存和真实解码端到端耗时的重复测量。当前 CLI 的一次起始状态耗时不构成完整性能报告；随机样本的 token 长度也不证明推理速度提升。
 
-## 提交前状态
+## 时间与交付边界
 
-本轮所有改动均为未提交的本地修改。线上 Playground 仍是此前发布版本；没有 commit、push、PR 或 moon publish。`_local/` 包含交接、工具链和原始日志，受忽略规则保护，不进入提交或发布。
+2026-09-30 的本地成果在 2026-10-01 才同步 GitHub，详见[历史记录](acceptance-plan-2026-09-30.md)。后续发布与补充工作按实际时间记录，不能当作截止前交付的证据。`_local/` 永不进入 GitHub 或发布包。本文是工程证据，不代替主办方的最终验收结论。

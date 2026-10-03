@@ -1,3 +1,9 @@
 playground/
 docs/img/
 assets/gpt2/
+_local/
+.git/
+.github/
+.githooks/
+__pycache__/
+*.pyc

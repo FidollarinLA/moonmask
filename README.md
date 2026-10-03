@@ -133,12 +133,37 @@ Windows PowerShell 将 PATH 设置为 `$env:PATH = "$env:USERPROFILE\.moon\bin;$
 
 **真实模型演示**：[examples/logits](examples/logits/README.md) 提供固定版本模型、运行命令和双重校验。在已记录的单个示例中，紧凑模式 11 tokens 完整结束；纯空白模式虽语法合法但持续换行，需要显式收尾策略才能按期 EOS。[结果与限制](docs/logits-demo.md)。模型推理由 Python/PyTorch 承担，约束、logits 选择及状态推进均由 MoonBit 实现。
 
-moonmask 还没有发布到 mooncakes。可以克隆仓库，在自己的项目里用 `moon.work` 引用源码：
+作为依赖使用，在已有 MoonBit 项目根目录安装 [mooncakes 包](https://mooncakes.io/docs/FidollarinLA/moonmask)：
 
 ```bash
-git clone https://github.com/FidollarinLA/moonmask.git
-./moonmask/scripts/fetch-gpt2.sh
+moon add FidollarinLA/moonmask@0.1.0
 ```
+
+在使用它的包的 `moon.pkg` 中加入：
+
+```moonbit
+import {
+  "FidollarinLA/moonmask/schema",
+  "FidollarinLA/moonmask/vocab",
+  "FidollarinLA/moonmask/mask",
+}
+```
+
+然后在该可执行包中使用下列完整示例：
+
+```moonbit
+///|
+fn main raise {
+  let dfa = @schema.compile({ "enum": ["ok"] })
+  let vocab = @vocab.Vocab::new([b"\"ok\"", b"\"no\"", b""], eos=2)
+  let guide = @mask.Guide::new(dfa, vocab)
+  // 非法 token 的分数更高，仍会被排除。
+  assert_eq(guide.greedy(guide.start(), [0.0, 100.0, 0.0]), Some(0))
+  println("PASS")
+}
+```
+
+仓库内的 `python3 scripts/verify-release.py` 会在临时独立项目中从 mooncakes 安装固定版本，检查、构建并运行完整 quickstart，避免误用本地源码。Windows 可使用 `python`。若要修改库源码，可继续使用 `moon.work` 的本地模块引用。
 
 在推理循环里接入：
 
@@ -201,6 +226,9 @@ moonmask/
 - 把玩具词表换成真实的 GPT-2 词表（浏览器里下载并解析 50,257 个 token）。
 
 ## 文档
+
+- [docs/acceptance.md](docs/acceptance.md)：九项验收证据、复现命令与演示步骤
+- [docs/dependencies.md](docs/dependencies.md)：依赖、参考项目与许可证来源
 
 - [docs/schema-subset.md](docs/schema-subset.md)：支持的 JSON Schema 关键字和边界情况
 - [docs/gbnf.md](docs/gbnf.md)：GBNF 子集
