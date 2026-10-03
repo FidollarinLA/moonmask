@@ -64,6 +64,7 @@ jobs:
           moon fmt
           git diff --exit-code
       - run: ./build.sh
+      - run: python3 -m unittest discover -s . -p test_build.py -v
 
   native-demo:
     runs-on: ubuntu-latest

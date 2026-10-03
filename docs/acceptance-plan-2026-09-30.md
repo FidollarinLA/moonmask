@@ -10,7 +10,7 @@
 - [x] 重跑严格检查/测试/构建、logits协议及评分测试、限定Playground测试。
 - [x] 第一阶段：2118da0已同步GitHub；2026-10-01 13:45:46核实远端包含该提交，实际同步在截止之后。
 - [x] 第二阶段：已修复编辑期间旧约束继续运行/重启自动播放；新增引导、键盘焦点、移动端布局、零成功率空色条。Playground10/10；新增无模型cmd/quickstart运行PASS，核心88/88。README安装与跨平台下载已更新；80a934f已同步GitHub，2026-10-01 13:45:46核实远端包含该提交。
-- [ ] 查询远端CI与Pages部署，记录真实状态和失败原因。
+- [x] 查询远端CI与Pages部署：2026-10-03核实abefc04两工作流均success；截止后成功不等于按时提交。
 - [x] 最终同步检查已执行：23:59:32手动push因缺凭据失败；定时任务实际00:01触发，未在截止前完成同步。
 
 ## 九项验收证据
@@ -21,7 +21,7 @@
 | 2 公开GitHub与提交 | 公开仓库已同步最新功能 | https://github.com/FidollarinLA/moonmask；2026-10-01核实远端已包含2118da0、80a934f及7ee6d2f；不代表截止前完成 |
 | 3 结构与核心功能 | 本轮本地验证通过 | regex/schema/gbnf/vocab/mask职责独立；JSON空白与真实logits接入已有测试 |
 | 4 README可复现 | 本轮已改善 | 已增加跨平台安装/最小示例与验证入口；最小示例实际运行PASS，不依赖私有_local工具链 |
-| 5 CI检查构建测试 | 配置满足，最新执行待查 | .github/workflows/ci.yml；Windows/Linux/macOS检查测试，JS协议及Pages构建 |
+| 5 CI检查构建测试 | abefc04实际通过 | .github/workflows/ci.yml；Windows/Linux/macOS检查测试，JS协议及Pages构建；2026-10-03核实CI和Playground工作流success |
 | 6 可运行示例 | 本地满足 | cmd/main随机实验；examples/logits真实模型；Playground交互 |
 | 7 核心测试 | 本轮通过 | 各后端88/88、Playground10/10、协议+评分10/10；边界/错误/EOS/预算覆盖 |
 | 8 mooncakes发布 | 未满足/待发布 | README写明尚未发布，在线未找到；单独请求moon publish授权，待用户回应 |
@@ -60,3 +60,5 @@ Playground目录运行 `moon test --target js -p FidollarinLA/moonmask-playgroun
 ## 登录后实际同步结果
 
 北京时间2026-10-01 13:45:46，用户完成设备登录后再次执行git push origin main返回Everything up-to-date，随后git ls-remote核实main为7ee6d2f0f9c9a7f0e99915721ca5c32a131e6677，与本地HEAD完全一致。三个功能/文档提交均已上传；推送发生在截止之后，不能替代截止前上传要求。更新本文的确认提交随后同步。远程CI与Pages结果仍需按Actions实际运行核实，mooncakes仍未发布确认。
+
+2026-10-03 00:02北京时间：9月30日最终同步定时任务在截止后重复触发，已将moonmask-9-30-23-59暂停并获得应用确认；本次未提交、推送或发布，也未将截止后检查写为准时同步。

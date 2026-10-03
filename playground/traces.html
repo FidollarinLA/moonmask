@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>moonmask · 真实模型轨迹</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.trace-grid {display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:18px}
+.trace-controls {display:flex;flex-wrap:wrap;gap:16px;align-items:end}
+.trace-controls label {display:flex;flex-direction:column;gap:6px}
+.trace-range {width:100%;accent-color:var(--accent)}
+.trace-table {width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.trace-table th,.trace-table td {padding:8px;text-align:left;border-bottom:1px solid var(--line)}
+.trace-table tr.active {background:rgba(139,124,255,.18)}
+.table-wrap {max-height:330px;overflow:auto}
+.trace-table thead {position:sticky;top:0;background:var(--panel)}
+.trace-output {color:var(--text);max-height:220px}
+.trace-title {font-size:28px;margin:10px 0}
+details pre {max-height:280px}
+.trace-status {margin:0;display:inline-block}
+@media(max-width:760px){.trace-grid{grid-template-columns:1fr}}
+</style>
+<main class="app">
+<a href="index.html">← 随机采样 Playground</a>
+<h1 class="trace-title">真实模型 · 逐步解码轨迹</h1>
+<p class="note">只读的 DistilGPT-2 历史实验：4 个手写任务，每种配置重复两次，共 48 次生成。下方展示首次运行；重复 token/logit/状态一致。浏览器不运行模型，也不发送你的输入。该小语料不代表通用准确率或性能。</p>
+<div class="card">
+<div class="trace-controls">
+<label>任务<select class="preset" id="task"></select></label>
+<label>策略<select class="preset" id="policy"><option value="pure">纯 greedy</option><option value="completion">第 32 步起显式收尾</option></select></label>
+<label>模式<select class="preset" id="mode"><option value="compact">紧凑掩码</option><option value="whitespace">空白掩码</option><option value="unmasked">无掩码</option></select></label>
+<a href="https://github.com/FidollarinLA/moonmask/tree/main/examples/logits/evidence/suite">原始证据 ↗</a>
+</div>
+<p class="note">硬上限均为 64 tokens（含 EOS）。显式收尾仅用于掩码模式；无掩码结果相同。约束保证结构，不保证答对；格式合法也可能未 EOS。</p>
+<div class="stats" id="stats" aria-live="polite"></div>
+</div>
+<div class="trace-grid">
+<section class="card"><h2>预期值与完整输出</h2><span class="label">预期完整 JSON</span><pre class="raw trace-output" id="expected"></pre><span class="label">实际完整输出（未修复或抽取）</span><pre class="raw trace-output" id="output"></pre><details><summary>提示词与 Schema</summary><pre class="raw" id="prompt"></pre><pre class="raw" id="schema"></pre></details></section>
+<section class="card"><h2>逐步选择</h2><div class="toolbar"><button class="btn" id="previous">← 上一步</button><button class="btn" id="next">下一步 →</button><span id="position" aria-live="polite"></span></div><label for="step">选择步数</label><input class="trace-range" id="step" type="range" min="0" value="0"><pre class="raw trace-output" id="event"></pre><p class="note">排名基于完整模型向量；allowed_count 是收尾筛选前的 schema 掩码数量。无掩码走到死状态后 raw_allowed 始终为 false，不能与掩码路径当作同一前缀比较。</p></section>
+</div>
+<section class="card" style="margin-top:18px"><h2>Token 与状态记录</h2><div class="table-wrap"><table class="trace-table"><thead><tr><th>步</th><th>选中 token</th><th>状态</th><th>候选数</th><th>原始 top-1 合法</th><th>收尾</th></tr></thead><tbody id="rows"></tbody></table></div><p class="note">Token 展示来自 tokenizer.decode 单个片段，不用于重新校验 UTF-8；完整输出校验使用原始字节。该页仅显示记录，schema 编译/词表/候选选择/状态/EOS 由 MoonBit 执行。</p><details><summary>模型版本、文件摘要与运行环境</summary><pre class="raw" id="provenance"></pre></details></section>
+</main>
+<script id="evidence" type="application/json">__EVIDENCE_JSON__</script>
+<script>
+'use strict';
+const data=JSON.parse(document.getElementById('evidence').textContent);
+const el=id=>document.getElementById(id);
+const labels={'negative-review':'负面评价','tool-route':'工具路由（含错误答案）','bounded-array':'数组顺序（含错误答案）','empty-container':'空容器'};
+for(const task of data.tasks){const option=document.createElement('option');option.value=task.id;option.textContent=labels[task.id]||task.id;el('task').append(option)}
+let current;
+function badge(label,value){const span=document.createElement('span');span.className='badge trace-status '+(value?'good':'bad');span.textContent=label+'：'+(value?'是':'否');return span}
+function showStep(){const index=Number(el('step').value), row=current.trace[index];el('position').textContent=`第 ${index+1} / ${current.trace.length} 步`;el('previous').disabled=index===0;el('next').disabled=index===current.trace.length-1;el('event').textContent=JSON.stringify({token:row.token,token_display:row.token_display,raw_token:row.raw_token,raw_logit:row.raw_logit,chosen_logit:row.chosen_logit,chosen_rank:row.chosen_rank,state_before:row.state_before,state:row.state,accepting:row.accepting,ended:row.ended,finishing:row.finishing},null,2);for(const tr of el('rows').children)tr.classList.toggle('active',Number(tr.dataset.index)===index)}
+function render(){const task=data.tasks.find(t=>t.id===el('task').value), entry=task.policies[el('policy').value], report=entry.report;current=report.cases.find(c=>c.mode===el('mode').value);const scores=entry.scores[current.mode];el('stats').replaceChildren(badge('Schema 合法',scores.schema_valid),badge('EOS 完整合法',scores.complete_valid),badge('匹配预期',scores.expected_match),badge('匹配且 EOS',scores.complete_expected_match));el('expected').textContent=JSON.stringify(task.expected,null,2);el('output').textContent=current.text;el('prompt').textContent=report.prompt;el('schema').textContent=JSON.stringify(report.schema,null,2);el('provenance').textContent=JSON.stringify({model:report.model_source,hashes:report.model_files_sha256,engine_sha256:report.engine_sha256,versions:report.versions,runtime:report.runtime,reason:current.reason,tokens:current.tokens},null,2);el('step').max=current.trace.length-1;el('step').value=0;el('rows').replaceChildren();current.trace.forEach((row,i)=>{const tr=document.createElement('tr');tr.dataset.index=i;for(const text of [i+1,JSON.stringify(row.token_display??null),`${row.state_before} → ${row.state}`,row.allowed_count,row.raw_allowed?'是':'否',row.finishing?'是':'否']){const td=document.createElement('td');td.textContent=text;tr.append(td)}el('rows').append(tr)});showStep()}
+for(const id of ['task','policy','mode'])el(id).addEventListener('change',render);
+el('step').addEventListener('input',showStep);
+for(const [id,delta] of [['previous',-1],['next',1]])el(id).addEventListener('click',()=>{el('step').value=Number(el('step').value)+delta;showStep()});
+render();
+</script>
+</html>

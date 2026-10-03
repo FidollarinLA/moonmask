@@ -93,6 +93,7 @@ fn view_header(model : Model, emit : Emit[Msg]) -> Html {
         gpt_label,
       ),
       a(class="gh", href=REPO_URL, "GitHub ↗"),
+      a(class="gh", href="traces.html", "真实模型轨迹 ↗"),
     ]),
     match model.vocab_state {
       Failed(msg) => div(class="warn", "Could not load GPT-2: " + msg)

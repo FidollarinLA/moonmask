@@ -114,6 +114,8 @@ moon run cmd/main --target native -- --whitespace assets/gpt2/tokenizer.json \
 
 ## 快速开始
 
+**查看真实模型证据**：[逐步轨迹](https://fidollarinla.github.io/moonmask/traces.html)提供任务、策略和模式切换，以及 token/logit/状态记录。它展示已保存实验，不在浏览器运行模型；结构合法、EOS 和答案匹配分别显示。源码重建：在 `playground` 目录运行 `python build.py`，然后通过 HTTP 服务打开 `dist/traces.html`。
+
 需要 **MoonBit moonc ≥ 0.10.14**，先按[官方安装说明](https://docs.moonbitlang.com/en/latest/tutorial/tour.html)安装工具链。以下最小例子无需模型、Python、GPT-2 词表或 native 编译器；`moon update` 首次会获取依赖。
 
 ```bash

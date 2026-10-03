@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Historical real-model trace viewer with task/policy/mode controls, per-token navigation, separate schema/EOS/answer indicators and visible failure cases. Cross-platform Playground build verifies evidence hashes and corpus alignment before publishing the static page.
+
 - Multi-case real-logit regression runner with four versioned prompt/schema/expected-answer fixtures, pure/completion policies, repeated trace checks, and separate structure/EOS/answer scores. Model-free scoring tests join the protocol CI job.
 - `Guide::greedy` selects the highest allowed model logit with stable token-ID tie breaking, validation, EOS gating, suppression via negative infinity and an explicit optional distance-decreasing completion policy.
 - Real CPU DistilGPT-2 example in `examples/logits/`: MoonBit decoding over a local JSON-lines process, pinned model revision, per-step traces, independent JSON Schema validation and a same-hard-cap unmasked comparison. Model-free protocol tests are included in CI.
